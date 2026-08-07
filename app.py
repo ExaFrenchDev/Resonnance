@@ -1,6 +1,9 @@
+import eventlet
+eventlet.monkey_patch()
+
 import os
 
-from flask import Flask, jsonify, render_template, request, url_for
+from flask import Flask, jsonify, render_template, request, send_from_directory, url_for
 from flask_socketio import SocketIO
 
 from config import Config
@@ -49,6 +52,14 @@ def create_app():
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
         return response
 
+    @app.route("/sw.js")
+    def service_worker():
+        response = send_from_directory(app.static_folder, "sw.js")
+        response.headers["Service-Worker-Allowed"] = "/"
+        response.headers["Cache-Control"] = "no-cache"
+        response.mimetype = "application/javascript"
+        return response
+
     @app.errorhandler(404)
     def not_found(_):
         if request.path.startswith("/api/"):
@@ -62,7 +73,7 @@ def create_app():
             return jsonify({"ok": False, "error": "Erreur interne. Réessaie dans un instant."}), 500
         return render_template("not_found.html", message="Une erreur interne est survenue."), 500
 
-    socketio.init_app(app, cors_allowed_origins="*", async_mode="threading", manage_session=False)
+    socketio.init_app(app, cors_allowed_origins="*", async_mode="eventlet", manage_session=False)
     realtime.register(socketio, lambda: request.url_root.rstrip("/") if request else "")
 
     return app
