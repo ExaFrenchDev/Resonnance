@@ -1,8 +1,6 @@
-import smtplib
-import ssl
 import threading
-from email.message import EmailMessage
-from email.utils import formataddr
+
+import requests
 
 from config import Config
 from modules import database
@@ -29,26 +27,25 @@ def _render(content, base_url=""):
 
 
 def _send_sync(to_address, subject, html, text):
-    if not Config.SMTP_USER or not Config.SMTP_PASSWORD:
+    if not Config.RESEND_API_KEY:
         print(f"[mail:console] -> {to_address} | {subject}\n{text}\n")
         return False
-    message = EmailMessage()
-    message["Subject"] = subject
-    message["From"] = formataddr((Config.MAIL_FROM_NAME, Config.MAIL_FROM_ADDRESS))
-    message["To"] = to_address
-    message.set_content(text)
-    message.add_alternative(html, subtype="html")
     try:
-        if Config.SMTP_PORT == 465:
-            with smtplib.SMTP_SSL(Config.SMTP_HOST, Config.SMTP_PORT, context=ssl.create_default_context(), timeout=20) as server:
-                server.login(Config.SMTP_USER, Config.SMTP_PASSWORD)
-                server.send_message(message)
-        else:
-            with smtplib.SMTP(Config.SMTP_HOST, Config.SMTP_PORT, timeout=20) as server:
-                if Config.SMTP_USE_TLS:
-                    server.starttls(context=ssl.create_default_context())
-                server.login(Config.SMTP_USER, Config.SMTP_PASSWORD)
-                server.send_message(message)
+        response = requests.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {Config.RESEND_API_KEY}"},
+            json={
+                "from": f"{Config.MAIL_FROM_NAME} <{Config.RESEND_FROM_ADDRESS}>",
+                "to": [to_address],
+                "subject": subject,
+                "html": html,
+                "text": text,
+            },
+            timeout=20,
+        )
+        if response.status_code >= 400:
+            print(f"[mail:error] {to_address} -> {response.status_code} {response.text}")
+            return False
         return True
     except Exception as error:
         print(f"[mail:error] {to_address} -> {error}")
