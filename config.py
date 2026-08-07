@@ -28,6 +28,9 @@ class Config:
     MAIL_FROM_NAME = os.getenv("MAIL_FROM_NAME", "Resonance")
     MAIL_FROM_ADDRESS = os.getenv("MAIL_FROM_ADDRESS", os.getenv("SMTP_USER", "no-reply@resonance.app"))
 
+    RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+    RESEND_FROM_ADDRESS = os.getenv("RESEND_FROM_ADDRESS", "onboarding@resend.dev")
+
     DEEZER_API = "https://api.deezer.com"
     HTTP_TIMEOUT = _int("HTTP_TIMEOUT", 10)
     CACHE_TTL = _int("CACHE_TTL", 3600)
