@@ -1,0 +1,25 @@
+{% extends "shell.html" %}
+{% block title %}Découvrir — Resonance{% endblock %}
+
+{% block page %}
+<div class="page">
+  <div class="page__head">
+    <div class="spread" style="align-items:flex-end;flex-wrap:wrap">
+      <div>
+        <span class="eyebrow">Classé par superposition</span>
+        <h1>Découvrir</h1>
+      </div>
+      <button class="btn btn--quiet btn--sm" id="refresh" type="button">Recalculer</button>
+    </div>
+    <p>Chaque graphique compare vos deux discothèques, genre par genre. En orange ce que tu écoutes, en bleu ce qu'elle ou il écoute, et en foncé la part commune. Pour discuter, il faut que le like soit rendu.</p>
+  </div>
+
+  <div class="match-grid" id="matches"></div>
+  <div id="state"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script src="{{ asset_url('js/discover.js') }}"></script>
+{% endblock %}

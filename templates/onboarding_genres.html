@@ -1,0 +1,78 @@
+{% extends "plain.html" %}
+{% block title %}Tes genres — Resonance{% endblock %}
+
+{% block page %}
+<div class="page">
+  <div class="page__head">
+    <span class="eyebrow">02 — Genres</span>
+    <h1 style="margin-top:12px">Par quoi commence ton oreille&nbsp;?</h1>
+    <p>Sélectionne au moins {{ min_genres }} genres. Ils servent de première couche au calcul : c'est l'axe qui pèse le plus lourd dans ton score de résonance.</p>
+  </div>
+
+  {% if api_error %}
+  <div class="empty">
+    <h3>Les genres n'ont pas pu être chargés</h3>
+    <p>{{ api_error }}</p>
+    <button class="btn btn--ghost" onclick="window.location.reload()">Réessayer</button>
+  </div>
+  {% else %}
+  <div class="genre-grid" id="genre-grid">
+    {% for genre in genres %}
+    <button class="genre" type="button" data-genre-id="{{ genre.genre_id }}" aria-pressed="{{ 'true' if genre.genre_id in selected else 'false' }}">
+      <img src="{{ genre.picture }}" alt="" loading="lazy">
+      <span>{{ genre.genre_name }}</span>
+    </button>
+    {% endfor %}
+  </div>
+
+  <div class="actionbar">
+    <div class="row">
+      <div class="progress" id="progress"></div>
+      <span class="mono dim" style="font-size:12px" id="counter">0 / {{ min_genres }}</span>
+    </div>
+    <button class="btn" id="next" disabled>Continuer vers les morceaux</button>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const grid = document.getElementById('genre-grid');
+  const nextButton = document.getElementById('next');
+  const counter = document.getElementById('counter');
+  const progress = document.getElementById('progress');
+  const minimum = {{ min_genres }};
+
+  function selectedIds() {
+    return [...grid.querySelectorAll('[aria-pressed="true"]')].map((node) => Number(node.dataset.genreId));
+  }
+
+  function refresh() {
+    const count = selectedIds().length;
+    counter.textContent = `${count} / ${minimum}`;
+    nextButton.disabled = count < minimum;
+    progress.innerHTML = Array.from({ length: minimum }, (_, i) => `<i class="${i < count ? 'on' : ''}"></i>`).join('');
+  }
+
+  grid.addEventListener('click', (event) => {
+    const tile = event.target.closest('.genre');
+    if (!tile) return;
+    tile.setAttribute('aria-pressed', tile.getAttribute('aria-pressed') === 'true' ? 'false' : 'true');
+    refresh();
+  });
+
+  nextButton.addEventListener('click', async () => {
+    nextButton.disabled = true;
+    try {
+      const result = await Resonance.api('/api/genres', { method: 'POST', body: { genres: selectedIds() } });
+      window.location.href = result.redirect;
+    } catch (error) {
+      Resonance.toast(error.message, 'error');
+      nextButton.disabled = false;
+    }
+  });
+
+  refresh();
+</script>
+{% endblock %}

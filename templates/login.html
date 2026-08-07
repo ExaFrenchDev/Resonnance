@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Se connecter — Resonance{% endblock %}
+
+{% block body %}
+<div class="auth">
+  <section class="auth__stage">
+    <a class="wordmark" href="{{ url_for('auth.landing') }}">Resonance</a>
+    <div class="auth__hero">
+      <span class="eyebrow">Content de te revoir</span>
+      <h1>Tes goûts ont<br>peut-être bougé.</h1>
+      <p class="lede">Les scores se recalculent à chaque titre ajouté ou retiré. Passe faire un tour dans « Mes goûts » pour voir les profils changer de place.</p>
+      <div id="hero-meter" style="max-width:440px"></div>
+    </div>
+    <div class="stat-line"><div><b>2</b>likes pour ouvrir une discussion</div></div>
+  </section>
+
+  <section class="auth__form">
+    <div class="auth__inner">
+      <h2>Se connecter</h2>
+      <p class="muted" style="margin:14px 0 24px">Avec ton email ou ton pseudo.</p>
+
+      <form id="login-form" class="stack" novalidate>
+        <div class="field">
+          <label for="identifier">Email ou pseudo</label>
+          <input class="input" id="identifier" name="identifier" type="text" autocomplete="username" required>
+        </div>
+        <div class="field">
+          <label for="password">Mot de passe</label>
+          <input class="input" id="password" name="password" type="password" autocomplete="current-password" required>
+        </div>
+        <p class="field-error" id="form-error" role="alert"></p>
+        <button class="btn btn--block" type="submit">Se connecter</button>
+      </form>
+
+      <p class="dim center" style="font-size:13.5px;margin-top:20px">Pas encore de compte ? <a href="{{ url_for('auth.register_page') }}" style="color:var(--blue);font-weight:600">Créer un compte</a></p>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.getElementById('hero-meter').innerHTML = Resonance.spectrum(76, [
+    { label: 'Techno', mine: 0.9, theirs: 0.85, shared: 0.85 },
+    { label: 'Ambient', mine: 0.7, theirs: 0.62, shared: 0.62 },
+    { label: 'Post-punk', mine: 0.55, theirs: 0.75, shared: 0.55 },
+    { label: 'Dub', mine: 0.4, theirs: 0.3, shared: 0.3 },
+    { label: 'Variété', mine: 0.65, theirs: 0.1, shared: 0.1 },
+  ], { caption: 'exemple de mesure', legend: 'Sami' });
+
+  const form = document.getElementById('login-form');
+  const errorLine = document.getElementById('form-error');
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = form.querySelector('button[type=submit]');
+    button.disabled = true;
+    errorLine.textContent = '';
+    try {
+      const result = await Resonance.api('/api/auth/login', {
+        method: 'POST',
+        body: { identifier: form.identifier.value, password: form.password.value, next: {{ next_url|tojson }} },
+      });
+      window.location.href = result.redirect;
+    } catch (error) {
+      errorLine.textContent = error.message;
+      button.disabled = false;
+    }
+  });
+</script>
+{% endblock %}

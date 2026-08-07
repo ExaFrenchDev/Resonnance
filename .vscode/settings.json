@@ -1,0 +1,11 @@
+{
+  // Les templates Jinja2 (templates/*.html) mélangent du HTML/JS avec des
+  // expressions {{ ... }} côté serveur. Le validateur JS intégré de VSCode
+  // ne connaît pas Jinja et essaie de parser ces expressions comme du JS,
+  // ce qui déclenche une cascade de fausses erreurs ("Property assignment
+  // expected", "; expected", etc.) sur tout le reste du bloc <script>.
+  // Flask remplace ces expressions par de vraies valeurs avant d'envoyer
+  // la page au navigateur : le JS final est valide, ces erreurs n'existent
+  // qu'à l'affichage dans l'éditeur.
+  "html.validate.scripts": false
+}

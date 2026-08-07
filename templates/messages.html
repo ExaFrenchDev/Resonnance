@@ -1,0 +1,56 @@
+{% extends "shell.html" %}
+{% block title %}Messages — Resonance{% endblock %}
+
+{% block page %}
+<div class="page" style="max-width:760px">
+  <div class="page__head">
+    <span class="eyebrow">Likes réciproques</span>
+    <h1>Messages</h1>
+    <p>Une discussion s'ouvre uniquement quand vous vous êtes likés tous les deux. Personne ne peut t'écrire sans que tu l'aies choisi.</p>
+  </div>
+
+  <div class="inbox">
+    {% for conversation in conversations %}
+    <a class="inbox__item" href="{{ url_for('chat.chat_page', conversation_id=conversation.id) }}">
+      <span class="avatar" data-seed="{{ conversation.avatar_seed }}" data-online="{{ 1 if conversation.online else 0 }}">{{ conversation.display_name[:2] }}</span>
+      <span class="grow truncate">
+        <span class="spread">
+          <span class="truncate" style="font-weight:600">{{ conversation.display_name }}</span>
+          <span class="inbox__score">{{ conversation.score }}%</span>
+        </span>
+        <span class="inbox__preview truncate" style="display:block">
+          {% if conversation.last_body %}
+            {% if conversation.last_sender == user.id %}Toi : {% endif %}{{ conversation.last_body }}
+          {% else %}Aucun message. Lance la conversation.{% endif %}
+        </span>
+      </span>
+      {% if conversation.unread %}<span class="rail__badge">{{ conversation.unread }}</span>{% endif %}
+    </a>
+    {% else %}
+    <div class="empty" style="border-top:none">
+      <h3>Pas encore de discussion</h3>
+      <p>Ouvre l'onglet Découvrir et like les profils qui te parlent. Dès que le like est rendu, la discussion apparaît ici.</p>
+      <a class="btn btn--ghost" href="{{ url_for('match.discover_page') }}">Aller découvrir</a>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script>
+  const socket = io({ transports: ['websocket', 'polling'] });
+  let reloadTimer = null;
+  socket.on('inbox:bump', (data) => {
+    Resonance.toast(`${data.sender_name} : ${data.body.slice(0, 60)}`, 'success');
+    clearTimeout(reloadTimer);
+    reloadTimer = setTimeout(() => window.location.reload(), 1400);
+  });
+  socket.on('match:new', (data) => {
+    Resonance.toast(`${data.name} t'a liké en retour — ${data.score}%.`, 'success', 7000);
+    clearTimeout(reloadTimer);
+    reloadTimer = setTimeout(() => window.location.reload(), 1400);
+  });
+</script>
+{% endblock %}

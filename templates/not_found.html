@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Page introuvable — Resonance{% endblock %}
+
+{% block body %}
+<div style="min-height:100vh;display:grid;place-items:center;padding:24px">
+  <div style="max-width:440px;width:100%">
+    <span class="eyebrow">Erreur 404</span>
+    <h1 style="margin:14px 0 16px">Rien à<br>cet endroit.</h1>
+    <p class="muted">{{ message or "Le lien est cassé ou la page a été déplacée." }}</p>
+    <div id="meter" style="margin:26px 0 28px"></div>
+    <a class="btn" href="{{ url_for('auth.landing') }}">Revenir à l'accueil</a>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>document.getElementById('meter').innerHTML = Resonance.spectrum(0, [], { caption: 'aucun signal', stacked: true });</script>
+{% endblock %}

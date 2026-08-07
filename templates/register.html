@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Créer un compte — Resonance{% endblock %}
+
+{% block body %}
+<div class="auth">
+  <section class="auth__stage">
+    <a class="wordmark" href="{{ url_for('auth.landing') }}">Resonance</a>
+    <div class="auth__hero">
+      <span class="eyebrow">01 — Compte</span>
+      <h1>Ton compte,<br>puis ton oreille.</h1>
+      <p class="lede">Après la confirmation par email, tu choisis tes genres et tu écoutes des extraits. Le calcul de compatibilité démarre dès que ton profil sonore est posé.</p>
+    </div>
+    <div class="stat-line">
+      <div><b>01</b>Compte</div>
+      <div><b>02</b>Genres</div>
+      <div><b>03</b>Titres</div>
+    </div>
+  </section>
+
+  <section class="auth__form">
+    <div class="auth__inner">
+      <h2>Créer un compte</h2>
+      <p class="muted" style="margin:14px 0 24px">Un code de confirmation part immédiatement vers ton adresse.</p>
+
+      <form id="register-form" class="stack" novalidate>
+        <div class="field">
+          <label for="email">Adresse email</label>
+          <input class="input" id="email" name="email" type="email" autocomplete="email" placeholder="toi@exemple.fr" required>
+        </div>
+        <div class="field">
+          <label for="username">Pseudo</label>
+          <input class="input" id="username" name="username" type="text" autocomplete="username" placeholder="ton_pseudo" required>
+        </div>
+        <div class="field">
+          <label for="display_name">Nom affiché</label>
+          <input class="input" id="display_name" name="display_name" type="text" autocomplete="nickname" placeholder="Comment on t'appelle">
+        </div>
+        <div class="field">
+          <label for="password">Mot de passe</label>
+          <input class="input" id="password" name="password" type="password" autocomplete="new-password" placeholder="8 caractères minimum" required>
+        </div>
+
+        <label class="checkbox">
+          <input type="checkbox" id="newsletter" checked>
+          <span><strong>Recevoir les annonces par email</strong>Nouveaux matchs à fort score, nouveautés de l'app. Modifiable à tout moment.</span>
+        </label>
+
+        <p class="field-error" id="form-error" role="alert"></p>
+        <button class="btn btn--block" type="submit">Créer mon compte</button>
+      </form>
+
+      <p class="dim center" style="font-size:13.5px;margin-top:20px">Déjà inscrit ? <a href="{{ url_for('auth.login_page') }}" style="color:var(--blue);font-weight:600">Se connecter</a></p>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const form = document.getElementById('register-form');
+  const errorLine = document.getElementById('form-error');
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = form.querySelector('button[type=submit]');
+    button.disabled = true;
+    errorLine.textContent = '';
+    form.querySelectorAll('.input').forEach((input) => input.style.borderColor = '');
+
+    try {
+      const result = await Resonance.api('/api/auth/register', {
+        method: 'POST',
+        body: {
+          email: form.email.value,
+          username: form.username.value,
+          display_name: form.display_name.value,
+          password: form.password.value,
+          newsletter: document.getElementById('newsletter').checked ? '1' : '0',
+        },
+      });
+      window.location.href = result.redirect;
+    } catch (error) {
+      errorLine.textContent = error.message;
+      if (error.field && form[error.field]) {
+        form[error.field].style.borderColor = 'var(--danger)';
+        form[error.field].focus();
+      }
+      button.disabled = false;
+    }
+  });
+</script>
+{% endblock %}

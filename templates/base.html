@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e0e10">
+<meta name="description" content="Resonance met en relation les personnes dont les goûts musicaux se superposent vraiment.">
+<title>{% block title %}Resonance{% endblock %}</title>
+<link rel="stylesheet" href="{{ asset_url('css/app.css') }}">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27><rect width=%2732%27 height=%2732%27 fill=%27%230e0e10%27/><circle cx=%2713%27 cy=%2716%27 r=%278%27 fill=%27%23ff5a33%27/><circle cx=%2719%27 cy=%2716%27 r=%278%27 fill=%27%237c8cff%27 fill-opacity=%27.85%27/></svg>">
+</head>
+<body>
+{% block body %}{% endblock %}
+<div class="toasts"></div>
+<script src="{{ asset_url('js/core.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

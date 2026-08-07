@@ -1,0 +1,211 @@
+{% extends "shell.html" %}
+{% block title %}Réglages — Resonance{% endblock %}
+
+{% block page %}
+<div class="page" style="max-width:660px">
+  <div class="page__head">
+    <span class="eyebrow">Ton compte</span>
+    <h1>Réglages</h1>
+    <p>Ton adresse <span class="mono">{{ user.email }}</span> sert aux codes de confirmation et aux annonces. Elle n'est jamais affichée aux autres membres.</p>
+  </div>
+
+  <form class="card stack" id="profile-form" novalidate>
+    <h3>Profil public</h3>
+    <div class="field">
+      <label for="display_name">Nom affiché</label>
+      <input class="input" id="display_name" name="display_name" value="{{ user.display_name or user.username }}" maxlength="40">
+    </div>
+    <div class="field">
+      <label for="bio">Bio</label>
+      <textarea class="input" id="bio" name="bio" maxlength="280" placeholder="Deux lignes sur ce que tu écoutes en ce moment">{{ user.bio }}</textarea>
+    </div>
+    <div class="row" style="gap:12px;align-items:flex-start">
+      <div class="field grow">
+        <label for="city">Ville</label>
+        <input class="input" id="city" name="city" value="{{ user.city }}" maxlength="60">
+      </div>
+      <div class="field" style="width:154px">
+        <label for="birth_year">Naissance</label>
+        <input class="input mono" id="birth_year" name="birth_year" inputmode="numeric" value="{{ user.birth_year or '' }}" placeholder="1999">
+      </div>
+    </div>
+    <label class="checkbox">
+      <input type="checkbox" id="newsletter" {{ 'checked' if user.newsletter }}>
+      <span><strong>Recevoir les annonces par email</strong>Matchs à fort score, nouveautés de l'app.</span>
+    </label>
+    <button class="btn" type="submit">Enregistrer</button>
+  </form>
+
+  <div class="card stack" style="margin-top:18px">
+    <h3>Profil musical</h3>
+    <p class="muted" style="margin:0">Les scores se recalculent dès que tu ajoutes ou retires un titre.</p>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <a class="btn btn--ghost btn--sm" href="{{ url_for('music.genres_page') }}">Modifier mes genres</a>
+      <a class="btn btn--ghost btn--sm" href="{{ url_for('music.tracks_page') }}">Modifier mes titres</a>
+    </div>
+  </div>
+
+  <form class="card stack" id="password-form" style="margin-top:18px" novalidate>
+    <h3>Mot de passe</h3>
+    <div class="field">
+      <label for="current_password">Mot de passe actuel</label>
+      <input class="input" id="current_password" type="password" autocomplete="current-password" required>
+    </div>
+    <div class="field">
+      <label for="new_password">Nouveau mot de passe</label>
+      <input class="input" id="new_password" type="password" autocomplete="new-password" placeholder="8 caractères minimum" required>
+    </div>
+    <p class="field-error" id="password-error" role="alert"></p>
+    <button class="btn btn--ghost" type="submit">Changer le mot de passe</button>
+  </form>
+
+  {% if is_admin %}
+  <form class="card stack" id="announce-form" style="margin-top:18px" novalidate>
+    <h3>Envoyer une annonce</h3>
+    <p class="muted" style="margin:0">Part vers tous les membres confirmés qui ont laissé les annonces activées.</p>
+    <div class="field">
+      <label for="title">Titre</label>
+      <input class="input" id="title" name="title" required>
+    </div>
+    <div class="field">
+      <label for="body">Message</label>
+      <textarea class="input" id="body" name="body" rows="5" required></textarea>
+    </div>
+    <button class="btn btn--amber" type="submit">Envoyer l'annonce</button>
+  </form>
+  {% endif %}
+
+  <div class="danger-zone stack" style="margin-top:26px">
+    <h3>Supprimer mon compte</h3>
+    <p class="muted" style="margin:0">
+      Cette action est définitive. Ton profil, tes genres, tes titres, tes likes et toutes tes discussions
+      sont effacés immédiatement et ne peuvent pas être restaurés.
+    </p>
+    <button class="btn btn--quiet" id="delete-open" type="button" style="justify-self:start;border-color:var(--danger);color:var(--danger)">
+      Supprimer mon compte
+    </button>
+
+    <div class="stack hidden" id="delete-panel">
+      <div class="field">
+        <label for="delete_password">Ton mot de passe</label>
+        <input class="input" id="delete_password" type="password" autocomplete="current-password">
+      </div>
+      <div class="field">
+        <label for="delete_confirm">Écris SUPPRIMER pour confirmer</label>
+        <input class="input mono" id="delete_confirm" placeholder="SUPPRIMER" autocomplete="off">
+      </div>
+      <p class="field-error" id="delete-error" role="alert"></p>
+      <div class="row" style="gap:8px">
+        <button class="btn btn--danger" id="delete-confirm-btn" type="button">Supprimer définitivement</button>
+        <button class="btn btn--quiet" id="delete-cancel" type="button">Annuler</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const profileForm = document.getElementById('profile-form');
+  profileForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = profileForm.querySelector('button[type=submit]');
+    button.disabled = true;
+    try {
+      const result = await Resonance.api('/api/profile', {
+        method: 'POST',
+        body: {
+          display_name: profileForm.display_name.value,
+          bio: profileForm.bio.value,
+          city: profileForm.city.value,
+          birth_year: profileForm.birth_year.value,
+          newsletter: document.getElementById('newsletter').checked ? '1' : '0',
+        },
+      });
+      Resonance.toast(result.message, 'success');
+    } catch (error) {
+      Resonance.toast(error.message, 'error');
+    }
+    button.disabled = false;
+  });
+
+  const passwordForm = document.getElementById('password-form');
+  const passwordError = document.getElementById('password-error');
+  passwordForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = passwordForm.querySelector('button[type=submit]');
+    button.disabled = true;
+    passwordError.textContent = '';
+    try {
+      const result = await Resonance.api('/api/account/password', {
+        method: 'POST',
+        body: {
+          current_password: document.getElementById('current_password').value,
+          new_password: document.getElementById('new_password').value,
+        },
+      });
+      Resonance.toast(result.message, 'success');
+      passwordForm.reset();
+    } catch (error) {
+      passwordError.textContent = error.message;
+    }
+    button.disabled = false;
+  });
+
+  const announceForm = document.getElementById('announce-form');
+  if (announceForm) {
+    announceForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const button = announceForm.querySelector('button[type=submit]');
+      button.disabled = true;
+      try {
+        const result = await Resonance.api('/api/announcements', {
+          method: 'POST',
+          body: { title: announceForm.title.value, body: announceForm.body.value },
+        });
+        Resonance.toast(result.message, 'success');
+        announceForm.reset();
+      } catch (error) {
+        Resonance.toast(error.message, 'error');
+      }
+      button.disabled = false;
+    });
+  }
+
+  const deletePanel = document.getElementById('delete-panel');
+  const deleteError = document.getElementById('delete-error');
+
+  document.getElementById('delete-open').addEventListener('click', (event) => {
+    deletePanel.classList.remove('hidden');
+    event.currentTarget.classList.add('hidden');
+    document.getElementById('delete_password').focus();
+  });
+
+  document.getElementById('delete-cancel').addEventListener('click', () => {
+    deletePanel.classList.add('hidden');
+    document.getElementById('delete-open').classList.remove('hidden');
+    deleteError.textContent = '';
+    document.getElementById('delete_password').value = '';
+    document.getElementById('delete_confirm').value = '';
+  });
+
+  document.getElementById('delete-confirm-btn').addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    deleteError.textContent = '';
+    try {
+      const result = await Resonance.api('/api/account/delete', {
+        method: 'POST',
+        body: {
+          password: document.getElementById('delete_password').value,
+          confirmation: document.getElementById('delete_confirm').value,
+        },
+      });
+      window.location.href = result.redirect;
+    } catch (error) {
+      deleteError.textContent = error.message;
+      button.disabled = false;
+    }
+  });
+</script>
+{% endblock %}

@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+
+{% block body %}
+<header style="position:sticky;top:0;z-index:40;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px var(--pad);border-bottom:1.5px solid var(--ink);background:var(--paper)">
+  <span class="wordmark">Resonance</span>
+  <a class="label" href="{{ url_for('auth.logout') }}">Se déconnecter</a>
+</header>
+<main>{% block page %}{% endblock %}</main>
+{% endblock %}

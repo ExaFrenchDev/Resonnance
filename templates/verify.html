@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Confirmer l'email — Resonance{% endblock %}
+
+{% block body %}
+<div class="auth">
+  <section class="auth__stage">
+    <a class="wordmark" href="{{ url_for('auth.landing') }}">Resonance</a>
+    <div class="auth__hero">
+      <span class="eyebrow">01 — Compte</span>
+      <h1>Un code<br>t'attend dans<br>ta boîte mail.</h1>
+      <p class="lede">Il est valable {{ ttl }} minutes. Sans confirmation, on ne peut pas t'envoyer les annonces ni ouvrir ton profil aux autres membres.</p>
+    </div>
+    <div class="stat-line"><div><b>{{ ttl }} min</b>avant expiration</div><div><b>6</b>chiffres</div></div>
+  </section>
+
+  <section class="auth__form">
+    <div class="auth__inner">
+      <h2>Entrer le code</h2>
+      <p class="muted" style="margin:14px 0 24px">Envoyé à <span class="mono">{{ masked_email }}</span>.</p>
+
+      <form id="verify-form" class="stack" novalidate>
+        <div class="field">
+          <label for="code">Code de confirmation</label>
+          <input class="input mono" id="code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6"
+                 placeholder="000000" style="font-size:30px;letter-spacing:.32em;text-align:center;padding:16px" required>
+        </div>
+        <p class="field-error" id="form-error" role="alert"></p>
+        <button class="btn btn--block" type="submit">Confirmer</button>
+        <button class="btn btn--quiet btn--block" type="button" id="resend">Renvoyer le code</button>
+      </form>
+
+      <p class="dim center" style="font-size:13px;margin-top:20px">Rien reçu ? Regarde dans les spams, puis renvoie le code.</p>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const form = document.getElementById('verify-form');
+  const errorLine = document.getElementById('form-error');
+  const codeInput = document.getElementById('code');
+
+  codeInput.addEventListener('input', () => {
+    codeInput.value = codeInput.value.replace(/\D/g, '').slice(0, 6);
+    codeInput.style.borderColor = '';
+    if (codeInput.value.length === 6) form.requestSubmit();
+  });
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = form.querySelector('button[type=submit]');
+    button.disabled = true;
+    errorLine.textContent = '';
+    try {
+      const result = await Resonance.api('/api/auth/verify', { method: 'POST', body: { code: codeInput.value } });
+      window.location.href = result.redirect;
+    } catch (error) {
+      errorLine.textContent = error.message;
+      codeInput.style.borderColor = 'var(--danger)';
+      button.disabled = false;
+    }
+  });
+
+  document.getElementById('resend').addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      const result = await Resonance.api('/api/auth/resend', { method: 'POST', body: {} });
+      Resonance.toast(result.message, 'success');
+    } catch (error) {
+      Resonance.toast(error.message, 'error');
+    }
+    let remaining = 30;
+    const timer = setInterval(() => {
+      button.textContent = `Renvoyer le code (${remaining}s)`;
+      remaining -= 1;
+      if (remaining < 0) {
+        clearInterval(timer);
+        button.textContent = 'Renvoyer le code';
+        button.disabled = false;
+      }
+    }, 1000);
+  });
+</script>
+{% endblock %}

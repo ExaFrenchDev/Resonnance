@@ -1,0 +1,203 @@
+{% extends "shell.html" if done else "plain.html" %}
+{% block title %}Tes morceaux — Resonance{% endblock %}
+
+{% block page %}
+<div class="page">
+  <div class="page__head">
+    {% if not done %}<span class="eyebrow">03 — Titres</span>{% endif %}
+    <h1 style="margin-top:12px">{{ "Mes goûts" if done else "Écoute, garde ce qui te parle." }}</h1>
+    <p>Chaque morceau joue un extrait de 30 secondes. Garde ceux qui te ressemblent : ce sont eux qui feront apparaître les artistes communs avec les autres membres. Minimum {{ min_tracks }} morceaux.</p>
+  </div>
+
+  <div class="taste">
+    <div>
+      <div class="row" style="margin-bottom:16px;flex-wrap:wrap;gap:10px">
+        <input class="input grow" id="search" type="search" placeholder="Chercher un titre, un artiste…" style="max-width:340px" autocomplete="off">
+        <button class="btn btn--quiet btn--sm" id="shuffle" type="button">Autres suggestions</button>
+      </div>
+
+      <div class="tabs" id="tabs" style="margin-bottom:16px">
+        <button class="tab is-active" data-genre="all" type="button">Tous mes genres</button>
+        {% for genre in genres %}
+        <button class="tab" data-genre="{{ genre.genre_id }}" type="button">{{ genre.genre_name }}</button>
+        {% endfor %}
+      </div>
+
+      <div class="tile-grid" id="feed"></div>
+      <p class="dim center mono" id="feed-status" style="font-size:12px;padding:22px 0"></p>
+    </div>
+
+    <aside class="side-panel">
+      <div class="card">
+        <div class="spread" style="margin-bottom:14px">
+          <h3>Ta sélection</h3>
+          <span class="chip chip--amber" id="count">0</span>
+        </div>
+        <div class="picked" id="picked"></div>
+        <p class="dim" id="picked-empty" style="font-size:13.5px;margin:8px 0 0">Rien pour l'instant. Lance un extrait et ajoute ce qui accroche.</p>
+        <button class="btn btn--block" id="finish" style="margin-top:16px" {% if not done %}disabled{% endif %}>
+          {{ "Enregistrer" if done else "Terminer et découvrir" }}
+        </button>
+      </div>
+    </aside>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const MIN_TRACKS = {{ min_tracks }};
+  const IS_DONE = {{ 'true' if done else 'false' }};
+  const feed = document.getElementById('feed');
+  const status = document.getElementById('feed-status');
+  const pickedHost = document.getElementById('picked');
+  const pickedEmpty = document.getElementById('picked-empty');
+  const countChip = document.getElementById('count');
+  const finishButton = document.getElementById('finish');
+  const searchInput = document.getElementById('search');
+
+  const picked = new Map({{ saved|tojson }}.map((track) => [String(track.track_id), track]));
+  let activeGenre = 'all';
+
+  function renderPicked() {
+    countChip.textContent = `${picked.size} / ${MIN_TRACKS}`;
+    pickedEmpty.classList.toggle('hidden', picked.size > 0);
+    finishButton.disabled = picked.size < MIN_TRACKS;
+    pickedHost.innerHTML = [...picked.values()].map((track) => `
+      <div class="picked__item">
+        <img src="${Resonance.escapeHtml(track.cover)}" alt="" loading="lazy">
+        <span class="grow truncate">
+          <span class="truncate" style="display:block;font-size:13px;font-weight:600">${Resonance.escapeHtml(track.title)}</span>
+          <span class="truncate dim" style="display:block;font-size:11.5px">${Resonance.escapeHtml(track.artist_name)}</span>
+        </span>
+        <button class="play play--sm" data-preview="${Resonance.escapeHtml(track.preview || '')}" data-track-id="${track.track_id}" type="button"></button>
+        <button class="picked__remove" data-remove="${track.track_id}" aria-label="Retirer ${Resonance.escapeHtml(track.title)}">&times;</button>
+      </div>`).join('');
+    Resonance.bindPlayButtons(pickedHost);
+    feed.querySelectorAll('[data-track-tile]').forEach((tile) => {
+      tile.dataset.picked = picked.has(tile.dataset.trackTile) ? '1' : '0';
+      const button = tile.querySelector('[data-add]');
+      button.textContent = picked.has(tile.dataset.trackTile) ? 'Retirer' : 'Ajouter';
+      button.className = picked.has(tile.dataset.trackTile) ? 'btn btn--sm btn--quiet tile__add' : 'btn btn--sm btn--wave tile__add';
+    });
+  }
+
+  function renderFeed(tracks) {
+    if (!tracks.length) {
+      feed.innerHTML = '';
+      status.textContent = 'Aucun résultat. Essaie un autre genre ou une autre recherche.';
+      return;
+    }
+    status.textContent = '';
+    feed.innerHTML = tracks.map((track) => `
+      <article class="tile" data-track-tile="${track.track_id}" data-picked="0">
+        <div class="tile__art">
+          <img src="${Resonance.escapeHtml(track.cover)}" alt="Pochette de ${Resonance.escapeHtml(track.title)}" loading="lazy">
+          <button class="play" data-preview="${Resonance.escapeHtml(track.preview)}" data-track-id="${track.track_id}" type="button"></button>
+        </div>
+        <div class="tile__meta">
+          <span class="tile__title truncate">${Resonance.escapeHtml(track.title)}</span>
+          <span class="tile__artist truncate">${Resonance.escapeHtml(track.artist_name)}</span>
+        </div>
+        <button class="btn btn--sm btn--wave tile__add" data-add='${JSON.stringify(track).replace(/'/g, '&#39;')}' type="button">Ajouter</button>
+      </article>`).join('');
+    Resonance.bindPlayButtons(feed);
+    renderPicked();
+  }
+
+  async function loadFeed() {
+    status.textContent = 'Chargement des suggestions…';
+    feed.innerHTML = '';
+    try {
+      const result = await Resonance.api(`/api/tracks/feed?genre_id=${activeGenre}`);
+      renderFeed(result.tracks);
+    } catch (error) {
+      status.textContent = error.message;
+    }
+  }
+
+  document.getElementById('tabs').addEventListener('click', (event) => {
+    const tab = event.target.closest('.tab');
+    if (!tab) return;
+    document.querySelectorAll('.tab').forEach((node) => node.classList.remove('is-active'));
+    tab.classList.add('is-active');
+    activeGenre = tab.dataset.genre;
+    searchInput.value = '';
+    loadFeed();
+  });
+
+  document.getElementById('shuffle').addEventListener('click', loadFeed);
+
+  let searchTimer = null;
+  searchInput.addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    const query = searchInput.value.trim();
+    if (query.length < 2) {
+      if (!query) loadFeed();
+      return;
+    }
+    searchTimer = setTimeout(async () => {
+      status.textContent = 'Recherche…';
+      try {
+        const result = await Resonance.api(`/api/tracks/search?q=${encodeURIComponent(query)}`);
+        renderFeed(result.tracks);
+      } catch (error) {
+        status.textContent = error.message;
+      }
+    }, 320);
+  });
+
+  feed.addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-add]');
+    if (!button) return;
+    const track = JSON.parse(button.dataset.add);
+    const key = String(track.track_id);
+    button.disabled = true;
+    try {
+      if (picked.has(key)) {
+        await Resonance.api(`/api/tracks/${track.track_id}`, { method: 'DELETE' });
+        picked.delete(key);
+      } else {
+        await Resonance.api('/api/tracks', { method: 'POST', body: track });
+        picked.set(key, track);
+      }
+      renderPicked();
+    } catch (error) {
+      Resonance.toast(error.message, 'error');
+    }
+    button.disabled = false;
+  });
+
+  pickedHost.addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-remove]');
+    if (!button) return;
+    const key = button.dataset.remove;
+    try {
+      await Resonance.api(`/api/tracks/${key}`, { method: 'DELETE' });
+      picked.delete(String(key));
+      renderPicked();
+    } catch (error) {
+      Resonance.toast(error.message, 'error');
+    }
+  });
+
+  finishButton.addEventListener('click', async () => {
+    finishButton.disabled = true;
+    try {
+      const result = await Resonance.api('/api/onboarding/finish', { method: 'POST', body: {} });
+      if (IS_DONE) {
+        Resonance.toast('Goûts enregistrés. Les scores sont recalculés.', 'success');
+        finishButton.disabled = false;
+      } else {
+        window.location.href = result.redirect;
+      }
+    } catch (error) {
+      Resonance.toast(error.message, 'error');
+      finishButton.disabled = false;
+    }
+  });
+
+  renderPicked();
+  loadFeed();
+</script>
+{% endblock %}
