@@ -10,6 +10,10 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from config import Config
+import logging
+
+log = logging.getLogger("resonance.music")
+logging.basicConfig(level=logging.INFO)
 
 ITUNES_API = "https://itunes.apple.com"
 APPLE_RSS = "https://rss.applemarketingtools.com/api/v2/{country}/music/most-played/{limit}/songs.json"
@@ -124,14 +128,17 @@ def _cached(key, producer, ttl=None, stale_ttl=None):
 
 
 def _get(url, params=None):
+    started = time.time()
     try:
         response = _session.get(url, params=params or {}, timeout=(3, Config.HTTP_TIMEOUT))
         response.raise_for_status()
         payload = response.json()
     except requests.RequestException as error:
+        log.warning("GET %s ECHEC %.0f ms (%s)", url, (time.time() - started) * 1000, error.__class__.__name__)
         raise MusicApiError(f"Service musical injoignable ({error.__class__.__name__}).")
     except ValueError:
         raise MusicApiError("Réponse illisible du service musical.")
+    log.info("GET %s -> %.0f ms", url, (time.time() - started) * 1000)
     if isinstance(payload, dict) and payload.get("errorMessage"):
         raise MusicApiError(payload["errorMessage"])
     return payload
@@ -435,6 +442,50 @@ def artist_top_tracks(artist_id, limit=10):
 
     return _cached(f"artist-top:{artist_id}:{limit}", producer, ttl=86400)
 
+def _norm(text):
+    text = unicodedata.normalize("NFKD", text or "")
+    text = "".join(c for c in text if not unicodedata.combining(c))
+    return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+
+
+def _rank(results, query):
+    q = _norm(query)
+    tokens = [t for t in q.split() if t]
+
+    def score(raw):
+        title = _norm(raw.get("trackName") or "")
+        artist = _norm(raw.get("artistName") or "")
+        hay = f"{artist} {title}"
+        value = 0
+
+        if title == q:
+            value += 140
+        if artist == q:
+            value += 110
+        if artist and q.startswith(artist + " "):
+            rest = q[len(artist):].strip()
+            if rest and title == rest:
+                value += 200
+            elif rest and rest in title:
+                value += 90
+        if title and q.endswith(" " + title):
+            value += 70
+        if tokens and all(t in hay for t in tokens):
+            value += 60
+        if title.startswith(q):
+            value += 35
+        if artist.startswith(q):
+            value += 20
+        value += sum(10 for t in tokens if t in hay)
+
+        if _NOISE.search(raw.get("trackName") or ""):
+            value -= 40
+        if raw.get("trackExplicitness") == "cleaned":
+            value -= 8
+        return -value
+
+    return sorted(results, key=score)
+
 
 def search_tracks(query, limit=25):
     query = (query or "").strip()
@@ -482,6 +533,14 @@ def search_tracks(query, limit=25):
                 artist_results = artists.result()
             except MusicApiError:
                 artist_results = []
+
+        merged = {}
+        for raw in song_results + artist_results:
+            tid = raw.get("trackId")
+            if tid and tid not in merged:
+                merged[tid] = raw
+
+        return _clean_tracks(_rank(list(merged.values()), query))[:limit]
 
         needle = query.lower()
         exact = [r for r in artist_results if (r.get("artistName") or "").lower() == needle]
