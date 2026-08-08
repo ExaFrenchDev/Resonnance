@@ -95,13 +95,21 @@
       try {
         const result = await Resonance.api('/api/like/{{ other.id }}', { method: 'POST', body: {} });
         likeButton.textContent = result.mutual ? 'Like réciproque' : 'Like envoyé';
-        if (result.mutual && result.conversation_id) {
+        if (result.mutual) {
           Resonance.toast('Discussion ouverte.', 'success');
-          setTimeout(() => window.location.href = `/messages/${result.conversation_id}`, 900);
+          const target = result.conversation_id
+            ? `/messages/${result.conversation_id}`
+            : null;
+          if (target) {
+            setTimeout(() => { window.location.href = target; }, 900);
+          } else {
+            setTimeout(() => window.location.reload(), 900);
+          }
         }
       } catch (error) {
         Resonance.toast(error.message, 'error');
         likeButton.disabled = false;
+        likeButton.textContent = 'Liker ce profil';
       }
     });
   }
