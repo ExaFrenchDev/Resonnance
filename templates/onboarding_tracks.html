@@ -24,6 +24,9 @@
       </div>
 
       <div class="tile-grid" id="feed"></div>
+      <div class="center" style="padding:8px 0">
+        <button class="btn btn--quiet btn--sm" id="more" type="button" hidden>Voir plus</button>
+      </div>
       <p class="dim center mono" id="feed-status" style="font-size:12px;padding:22px 0"></p>
     </div>
 
@@ -50,6 +53,7 @@
   const IS_DONE = {{ 'true' if done else 'false' }};
   const feed = document.getElementById('feed');
   const status = document.getElementById('feed-status');
+  const moreButton = document.getElementById('more');
   const pickedHost = document.getElementById('picked');
   const pickedEmpty = document.getElementById('picked-empty');
   const countChip = document.getElementById('count');
@@ -58,6 +62,21 @@
 
   const picked = new Map({{ saved|tojson }}.map((track) => [String(track.track_id), track]));
   let activeGenre = 'all';
+  let offset = 0;
+  let hasMore = true;
+  let loading = false;
+
+  function syncTiles() {
+    feed.querySelectorAll('[data-track-tile]').forEach((tile) => {
+      const key = tile.dataset.trackTile;
+      const isPicked = picked.has(key);
+      tile.dataset.picked = isPicked ? '1' : '0';
+      const button = tile.querySelector('[data-add]');
+      if (!button) return;
+      button.textContent = isPicked ? 'Retirer' : 'Ajouter';
+      button.className = isPicked ? 'btn btn--sm btn--quiet tile__add' : 'btn btn--sm btn--wave tile__add';
+    });
+  }
 
   function renderPicked() {
     countChip.textContent = `${picked.size} / ${MIN_TRACKS}`;
@@ -74,22 +93,20 @@
         <button class="picked__remove" data-remove="${track.track_id}" aria-label="Retirer ${Resonance.escapeHtml(track.title)}">&times;</button>
       </div>`).join('');
     Resonance.bindPlayButtons(pickedHost);
-    feed.querySelectorAll('[data-track-tile]').forEach((tile) => {
-      tile.dataset.picked = picked.has(tile.dataset.trackTile) ? '1' : '0';
-      const button = tile.querySelector('[data-add]');
-      button.textContent = picked.has(tile.dataset.trackTile) ? 'Retirer' : 'Ajouter';
-      button.className = picked.has(tile.dataset.trackTile) ? 'btn btn--sm btn--quiet tile__add' : 'btn btn--sm btn--wave tile__add';
-    });
+    syncTiles();
   }
 
-  function renderFeed(tracks) {
-    if (!tracks.length) {
-      feed.innerHTML = '';
-      status.textContent = 'Aucun résultat. Essaie un autre genre ou une autre recherche.';
-      return;
-    }
-    status.textContent = '';
-    feed.innerHTML = tracks.map((track) => `
+  function skeletons(count) {
+    feed.insertAdjacentHTML('beforeend', Array.from({ length: count }, () =>
+      '<div class="tile tile--skeleton" aria-hidden="true"></div>').join(''));
+  }
+
+  function clearSkeletons() {
+    feed.querySelectorAll('.tile--skeleton').forEach((node) => node.remove());
+  }
+
+  function tileHtml(track) {
+    return `
       <article class="tile" data-track-tile="${track.track_id}" data-picked="0">
         <div class="tile__art">
           <img src="${Resonance.escapeHtml(track.cover)}" alt="Pochette de ${Resonance.escapeHtml(track.title)}" loading="lazy">
@@ -100,21 +117,60 @@
           <span class="tile__artist truncate">${Resonance.escapeHtml(track.artist_name)}</span>
         </div>
         <button class="btn btn--sm btn--wave tile__add" data-add='${JSON.stringify(track).replace(/'/g, '&#39;')}' type="button">Ajouter</button>
-      </article>`).join('');
-    Resonance.bindPlayButtons(feed);
-    renderPicked();
+      </article>`;
   }
 
-  async function loadFeed() {
-    status.textContent = 'Chargement des suggestions…';
-    feed.innerHTML = '';
+  function appendTracks(tracks) {
+    if (!tracks.length) return;
+    feed.insertAdjacentHTML('beforeend', tracks.map(tileHtml).join(''));
+    Resonance.bindPlayButtons(feed);
+    syncTiles();
+    Resonance.player.prefetch(tracks[0].preview);
+  }
+
+  async function loadFeed(reset = false) {
+    if (loading || (!reset && !hasMore)) return;
+    loading = true;
+
+    if (reset) {
+      offset = 0;
+      hasMore = true;
+      feed.innerHTML = '';
+      status.textContent = '';
+    }
+    moreButton.hidden = true;
+    skeletons(reset ? 9 : 3);
+
     try {
-      const result = await Resonance.api(`/api/tracks/feed?genre_id=${activeGenre}`);
-      renderFeed(result.tracks);
+      const result = await Resonance.api(`/api/tracks/feed?genre_id=${encodeURIComponent(activeGenre)}&offset=${offset}&size=9`);
+      clearSkeletons();
+      appendTracks(result.tracks);
+      offset += result.tracks.length;
+      hasMore = result.has_more;
+      moreButton.hidden = !hasMore;
+      status.textContent = offset ? '' : 'Aucun résultat. Essaie un autre genre.';
     } catch (error) {
+      clearSkeletons();
       status.textContent = error.message;
+      hasMore = false;
+    } finally {
+      loading = false;
     }
   }
+
+  function renderSearch(tracks) {
+    feed.innerHTML = '';
+    moreButton.hidden = true;
+    hasMore = false;
+    if (!tracks.length) {
+      status.textContent = 'Aucun résultat. Essaie une autre recherche.';
+      return;
+    }
+    status.textContent = '';
+    appendTracks(tracks);
+  }
+
+  moreButton.addEventListener('click', () => loadFeed());
 
   document.getElementById('tabs').addEventListener('click', (event) => {
     const tab = event.target.closest('.tab');
@@ -123,24 +179,31 @@
     tab.classList.add('is-active');
     activeGenre = tab.dataset.genre;
     searchInput.value = '';
-    loadFeed();
+    loadFeed(true);
   });
 
-  document.getElementById('shuffle').addEventListener('click', loadFeed);
+  document.getElementById('shuffle').addEventListener('click', async () => {
+    try {
+      await Resonance.api(`/api/tracks/feed?genre_id=${encodeURIComponent(activeGenre)}&offset=0&size=1&shuffle=1`);
+    } catch (error) {
+      // le tirage échoue rarement ; on recharge quand même
+    }
+    loadFeed(true);
+  });
 
   let searchTimer = null;
   searchInput.addEventListener('input', () => {
     clearTimeout(searchTimer);
     const query = searchInput.value.trim();
     if (query.length < 2) {
-      if (!query) loadFeed();
+      if (!query) loadFeed(true);
       return;
     }
     searchTimer = setTimeout(async () => {
       status.textContent = 'Recherche…';
       try {
         const result = await Resonance.api(`/api/tracks/search?q=${encodeURIComponent(query)}`);
-        renderFeed(result.tracks);
+        renderSearch(result.tracks);
       } catch (error) {
         status.textContent = error.message;
       }
@@ -198,6 +261,6 @@
   });
 
   renderPicked();
-  loadFeed();
+  loadFeed(true).then(() => setTimeout(() => loadFeed(), 600));
 </script>
 {% endblock %}
