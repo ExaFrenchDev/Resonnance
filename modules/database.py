@@ -51,9 +51,9 @@ CREATE TABLE IF NOT EXISTS user_genres (
 
 CREATE TABLE IF NOT EXISTS user_tracks (
     user_id INTEGER NOT NULL,
-    track_id INTEGER NOT NULL,
+    track_id BIGINT NOT NULL,
     title TEXT NOT NULL,
-    artist_id INTEGER NOT NULL,
+    artist_id BIGINT NOT NULL,
     artist_name TEXT NOT NULL,
     album_title TEXT DEFAULT '',
     cover TEXT DEFAULT '',
