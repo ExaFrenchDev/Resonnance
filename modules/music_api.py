@@ -1,7 +1,9 @@
 import concurrent.futures
 import random
+import re
 import threading
 import time
+import unicodedata
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -9,15 +11,10 @@ from urllib3.util.retry import Retry
 
 from config import Config
 
-# --- Sources -----------------------------------------------------------------
-# Apple : catalogue scopé par pays via country=fr, sans authentification.
 ITUNES_API = "https://itunes.apple.com"
 APPLE_RSS = "https://rss.applemarketingtools.com/api/v2/{country}/music/most-played/{limit}/songs.json"
 STORE_COUNTRY = "fr"
 STORE_LANG = "fr_fr"
-
-# Deezer : conservé UNIQUEMENT pour la liste des genres (taxonomie statique,
-# pas de géolocalisation). Ça préserve les genre_id déjà stockés en base.
 DEEZER_GENRES = "https://api.deezer.com/genre"
 
 _cache = {}
@@ -47,11 +44,6 @@ FALLBACK_COVER = "https://is1-ssl.mzstatic.com/image/thumb/Features/v4/placehold
 
 class MusicApiError(Exception):
     pass
-
-
-# ---------------------------------------------------------------------------
-# Cache : stale-while-revalidate + single-flight
-# ---------------------------------------------------------------------------
 
 
 def _store(key, value, ttl):
@@ -133,11 +125,7 @@ def _cached(key, producer, ttl=None, stale_ttl=None):
 
 def _get(url, params=None):
     try:
-        response = _session.get(
-            url,
-            params=params or {},
-            timeout=(3, Config.HTTP_TIMEOUT),
-        )
+        response = _session.get(url, params=params or {}, timeout=(3, Config.HTTP_TIMEOUT))
         response.raise_for_status()
         payload = response.json()
     except requests.RequestException as error:
@@ -148,10 +136,6 @@ def _get(url, params=None):
         raise MusicApiError(payload["errorMessage"])
     return payload
 
-
-# ---------------------------------------------------------------------------
-# Genres : mapping nom Apple -> genre_id Deezer (préserve la base existante)
-# ---------------------------------------------------------------------------
 
 _GENRE_ALIASES = {
     "rap": ("rap", "hip-hop", "hip hop"),
@@ -174,7 +158,6 @@ _GENRE_ALIASES = {
     "pop": ("pop", "variété", "variete"),
 }
 
-# Terme de genre côté Apple, pour le repli par recherche.
 _APPLE_GENRE_TERMS = {
     "rap": "Hip-Hop/Rap",
     "rnb": "R&B/Soul",
@@ -196,9 +179,14 @@ _APPLE_GENRE_TERMS = {
     "pop": "Pop",
 }
 
+_NOISE = re.compile(
+    r"\s*[\(\[][^\)\]]*(remaster|remix|live|version|edit|mix|feat|avec|bonus|"
+    r"deluxe|radio|extended|instrumental|acoustic|explicit)[^\)\]]*[\)\]]",
+    re.IGNORECASE,
+)
+
 
 def _canonical(name):
-    """Réduit un nom de genre (Apple ou Deezer, FR ou EN) à une clé commune."""
     text = (name or "").strip().lower()
     if not text:
         return ""
@@ -233,8 +221,6 @@ def genre_name_map():
 
 
 def _genre_index():
-    """{clé canonique: genre_id}. Premier genre Deezer qui matche gagne."""
-
     def producer():
         index = {}
         for genre in list_genres():
@@ -248,11 +234,6 @@ def _genre_index():
 
 def _genre_id_for(apple_genre_name):
     return _genre_index().get(_canonical(apple_genre_name), 0)
-
-
-# ---------------------------------------------------------------------------
-# Normalisation
-# ---------------------------------------------------------------------------
 
 
 def _artwork(url):
@@ -278,25 +259,38 @@ def normalise_track(raw, genre_id=None):
     }
 
 
+def _dedupe_key(track):
+    def strip(text):
+        text = _NOISE.sub("", text or "")
+        text = unicodedata.normalize("NFKD", text)
+        text = "".join(c for c in text if not unicodedata.combining(c))
+        return re.sub(r"[^a-z0-9]+", "", text.lower())
+
+    return f"{strip(track['artist_name'])}::{strip(track['title'])}"
+
+
+def dedupe_key(title, artist_name):
+    return _dedupe_key({"title": title or "", "artist_name": artist_name or ""})
+
+
 def _clean_tracks(items, genre_id=None):
-    seen = set()
+    seen_ids = set()
+    seen_keys = set()
     output = []
     for raw in items:
         track = normalise_track(raw, genre_id)
-        if not track["track_id"] or not track["preview"] or track["track_id"] in seen:
+        if not track["track_id"] or not track["preview"]:
             continue
-        seen.add(track["track_id"])
+        key = _dedupe_key(track)
+        if track["track_id"] in seen_ids or key in seen_keys:
+            continue
+        seen_ids.add(track["track_id"])
+        seen_keys.add(key)
         output.append(track)
     return output
 
 
-# ---------------------------------------------------------------------------
-# Morceaux
-# ---------------------------------------------------------------------------
-
-
 def _lookup(ids):
-    """Résout jusqu'à 100 IDs par requête. Renvoie {track_id: objet brut}."""
     ids = [str(i) for i in ids if i]
     if not ids:
         return {}
@@ -325,8 +319,6 @@ def _lookup(ids):
 
 
 def get_track(track_id):
-    """Les previews Apple sont des fichiers CDN statiques : pas d'expiration."""
-
     def producer():
         raw = _lookup([track_id]).get(str(int(track_id)))
         if not raw:
@@ -337,21 +329,22 @@ def get_track(track_id):
 
 
 def _fr_chart_pool():
-    """Top 100 français réel (classement Apple FR), previews et genres inclus."""
-
     def producer():
         feed = _get(APPLE_RSS.format(country=STORE_COUNTRY, limit=100))
         entries = (feed.get("feed") or {}).get("results") or []
         details = _lookup([e.get("id") for e in entries])
 
         tracks = []
+        seen_keys = set()
         for entry in entries:
             raw = details.get(str(entry.get("id")))
             if not raw:
                 continue
             track = normalise_track(raw)
-            if not track["preview"]:
+            key = _dedupe_key(track)
+            if not track["preview"] or key in seen_keys:
                 continue
+            seen_keys.add(key)
             tracks.append(track)
         return tracks
 
@@ -359,7 +352,6 @@ def _fr_chart_pool():
 
 
 def _genre_search(genre_id, limit):
-    """Repli : recherche par genre dans le store français."""
     term = _APPLE_GENRE_TERMS.get(_canonical(genre_name_map().get(genre_id, "")))
     if not term:
         return []
@@ -386,11 +378,12 @@ def genre_chart(genre_id, limit=40):
         tracks = list(pool) if gid == 0 else [t for t in pool if t["genre_id"] == gid]
 
         if len(tracks) < 8 and gid:
-            seen = {t["track_id"] for t in tracks}
+            seen = {_dedupe_key(t) for t in tracks}
             for candidate in _genre_search(gid, limit):
-                if candidate["track_id"] in seen:
+                key = _dedupe_key(candidate)
+                if key in seen:
                     continue
-                seen.add(candidate["track_id"])
+                seen.add(key)
                 tracks.append(candidate)
                 if len(tracks) >= limit:
                     break
@@ -400,9 +393,14 @@ def genre_chart(genre_id, limit=40):
     return _cached(f"chart:{gid}:{limit}", producer)
 
 
-def genre_artists(genre_id, limit=20):
-    """Artistes dérivés du contenu français du genre, pas d'un top mondial."""
+def _safe_chart(genre_id, limit=50):
+    try:
+        return genre_chart(genre_id, limit)
+    except MusicApiError:
+        return []
 
+
+def genre_artists(genre_id, limit=20):
     def producer():
         seen = {}
         for track in genre_chart(int(genre_id), limit=50):
@@ -427,7 +425,7 @@ def artist_top_tracks(artist_id, limit=10):
             {
                 "id": int(artist_id),
                 "entity": "song",
-                "limit": limit + 1,
+                "limit": limit * 3,
                 "country": STORE_COUNTRY,
                 "lang": STORE_LANG,
             },
@@ -443,7 +441,7 @@ def search_tracks(query, limit=25):
     if len(query) < 2:
         return []
 
-    def producer():
+    def by_song():
         payload = _get(
             f"{ITUNES_API}/search",
             {
@@ -455,63 +453,101 @@ def search_tracks(query, limit=25):
                 "limit": limit,
             },
         )
-        return _clean_tracks(payload.get("results", []))
+        return payload.get("results", [])
+
+    def by_artist():
+        payload = _get(
+            f"{ITUNES_API}/search",
+            {
+                "term": query,
+                "media": "music",
+                "entity": "song",
+                "attribute": "artistTerm",
+                "country": STORE_COUNTRY,
+                "lang": STORE_LANG,
+                "limit": limit,
+            },
+        )
+        return payload.get("results", [])
+
+    def producer():
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            songs = pool.submit(by_song)
+            artists = pool.submit(by_artist)
+            try:
+                song_results = songs.result()
+            except MusicApiError:
+                song_results = []
+            try:
+                artist_results = artists.result()
+            except MusicApiError:
+                artist_results = []
+
+        needle = query.lower()
+        exact = [r for r in artist_results if (r.get("artistName") or "").lower() == needle]
+        exact_ids = {r.get("trackId") for r in exact}
+        rest = [r for r in artist_results if r.get("trackId") not in exact_ids]
+        return _clean_tracks(exact + song_results + rest)[:limit]
 
     return _cached(f"search:{query.lower()}:{limit}", producer, ttl=1800)
 
 
-# ---------------------------------------------------------------------------
-# Découverte
-# ---------------------------------------------------------------------------
+def _discovery_order(genre_ids, seed):
+    genres = list(dict.fromkeys(int(g) for g in (genre_ids or [0])))
+    key = f"disco:{'-'.join(map(str, genres))}:{seed}"
+
+    def producer():
+        results = {}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(6, len(genres))) as pool:
+            futures = {pool.submit(_safe_chart, g, 50): g for g in genres}
+            for future in concurrent.futures.as_completed(futures):
+                results[futures[future]] = future.result()
+
+        ordered = []
+        seen = set()
+        for index in range(50):
+            for genre_id in genres:
+                tracks = results.get(genre_id) or []
+                if index >= len(tracks):
+                    continue
+                track = tracks[index]
+                dkey = _dedupe_key(track)
+                if dkey in seen:
+                    continue
+                seen.add(dkey)
+                ordered.append(track)
+
+        random.Random(seed).shuffle(ordered)
+        return ordered
+
+    return _cached(key, producer, ttl=3600)
+
+
+def discovery_page(genre_ids, exclude_ids=(), exclude_keys=(), offset=0, size=9, seed=0):
+    exclude = {int(i) for i in exclude_ids}
+    keys = set(exclude_keys or ())
+    ordered = [
+        t for t in _discovery_order(genre_ids, seed)
+        if t["track_id"] not in exclude and _dedupe_key(t) not in keys
+    ]
+    return {
+        "tracks": ordered[offset : offset + size],
+        "has_more": len(ordered) > offset + size,
+        "total": len(ordered),
+    }
 
 
 def discovery_pool(genre_ids, exclude_ids=(), size=30):
-    exclude = {int(i) for i in exclude_ids}
-    genres = list(dict.fromkeys(int(g) for g in (genre_ids or [0])))
-
-    results = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=min(6, len(genres))) as pool:
-        futures = {pool.submit(genre_chart, g, 50): g for g in genres}
-        for future in concurrent.futures.as_completed(futures):
-            try:
-                results[futures[future]] = future.result()
-            except MusicApiError:
-                results[futures[future]] = []
-
-    pool_tracks = []
-    seen = set()
-    for index in range(50):
-        for genre_id in genres:
-            tracks = results.get(genre_id) or []
-            if index >= len(tracks):
-                continue
-            track = tracks[index]
-            if track["track_id"] in seen or track["track_id"] in exclude:
-                continue
-            seen.add(track["track_id"])
-            pool_tracks.append(track)
-        if len(pool_tracks) >= size * 2:
-            break
-
-    random.shuffle(pool_tracks)
-    return pool_tracks[:size]
-
-
-# ---------------------------------------------------------------------------
-# Préchauffage
-# ---------------------------------------------------------------------------
+    return discovery_page(genre_ids, exclude_ids, (), 0, size, random.randint(1, 10**6))["tracks"]
 
 
 def warm_cache():
     def worker():
         try:
-            genres = list_genres()
             _fr_chart_pool()
-            for genre in genres[:12]:
-                try:
-                    genre_chart(genre["genre_id"], limit=50)
-                except MusicApiError:
-                    continue
+            genre_ids = [g["genre_id"] for g in list_genres()[:12]]
+            with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+                list(pool.map(lambda g: _safe_chart(g, 50), genre_ids))
         except Exception:
             pass
 
