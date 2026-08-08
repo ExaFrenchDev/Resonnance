@@ -117,7 +117,9 @@ def get_track(track_id):
 
 def genre_chart(genre_id, limit=40):
     def producer():
-        payload = _get(f"/chart/{int(genre_id)}/tracks", {"limit": limit})
+        name = genre_name_map().get(int(genre_id), "")
+        query = f"{name} france" if name else "top france"
+        payload = _get("/search/track", {"q": query, "limit": limit, "order": "RANKING"})
         return _clean_tracks(payload.get("data", []), genre_id)
 
     return _cached(f"chart:{genre_id}:{limit}", producer)
