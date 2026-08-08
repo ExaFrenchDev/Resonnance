@@ -52,14 +52,14 @@ def create_app():
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
         return response
 
-    @app.route("/sw.js")
-        def service_worker():
-            response = send_from_directory(app.static_folder, "sw.js")
-            response.headers["Service-Worker-Allowed"] = "/"
-            response.headers["Cache-Control"] = "no-cache"
-            response.mimetype = "application/javascript"
-            return response
-            
+   @app.route("/sw.js")
+    def service_worker():
+        response = send_from_directory(app.static_folder, "sw.js")
+        response.headers["Service-Worker-Allowed"] = "/"
+        response.headers["Cache-Control"] = "no-cache"
+        response.mimetype = "application/javascript"
+        return response
+
     @app.route("/ping")
     def ping():
         return "pong", 200
