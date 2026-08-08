@@ -50,7 +50,7 @@ def register(socketio, base_url_getter):
         with _sockets_lock:
             _sockets[user["id"]].add(request.sid)
         join_room(user_room(user["id"]))
-        database.execute("UPDATE users SET last_seen = datetime('now') WHERE id = ?", (user["id"],))
+        database.execute("UPDATE users SET last_seen = to_char(now(), 'YYYY-MM-DD HH24:MI:SS') WHERE id = ?", (user["id"],))
         emit("presence:self", {"user_id": user["id"], "online": True})
         socketio.emit("presence:update", {"user_id": user["id"], "online": True})
         return None
@@ -64,7 +64,7 @@ def register(socketio, base_url_getter):
             _sockets[user_id].discard(request.sid)
             still_online = bool(_sockets[user_id])
         if not still_online:
-            database.execute("UPDATE users SET last_seen = datetime('now') WHERE id = ?", (user_id,))
+            database.execute("UPDATE users SET last_seen = to_char(now(), 'YYYY-MM-DD HH24:MI:SS') WHERE id = ?", (user_id,))
             socketio.emit("presence:update", {"user_id": user_id, "online": False})
 
     @socketio.on("conversation:join")
