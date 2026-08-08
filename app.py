@@ -1,11 +1,8 @@
 import eventlet
 eventlet.monkey_patch()
-
 import os
-
 from flask import Flask, jsonify, render_template, request, send_from_directory, url_for
 from flask_socketio import SocketIO
-
 from config import Config
 from modules import auth, database, messaging, realtime
 from routes import BLUEPRINTS
@@ -16,9 +13,7 @@ socketio = SocketIO()
 def create_app():
     app = Flask(__name__, static_folder="static", template_folder="templates")
     app.config.from_object(Config)
-
     database.init_db()
-
     for blueprint in BLUEPRINTS:
         app.register_blueprint(blueprint)
 
@@ -76,11 +71,13 @@ def create_app():
     socketio.init_app(app, cors_allowed_origins="*", async_mode="eventlet", manage_session=False)
     realtime.register(socketio, lambda: request.url_root.rstrip("/") if request else "")
 
+    from modules.music_api import warm_cache
+    warm_cache()
+
     return app
 
 
 app = create_app()
-
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
