@@ -58,6 +58,8 @@ const Resonance = (() => {
     const audio = new Audio();
     audio.preload = 'none';
     audio.volume = 0.85;
+    const warm = new Audio();
+    warm.preload = 'auto';
     let currentId = null;
     const listeners = new Set();
 
@@ -76,8 +78,8 @@ const Resonance = (() => {
     });
 
     return {
-      toggle(id, hasPreview) {
-        if (!hasPreview) {
+      toggle(id, previewUrl) {
+        if (!previewUrl) {
           toast('Aucun extrait disponible pour ce morceau.', 'error');
           return;
         }
@@ -88,15 +90,17 @@ const Resonance = (() => {
           return;
         }
         currentId = String(id);
-        // On passe toujours par le backend (plutôt que par l'URL Deezer
-        // brute, qui expire) pour obtenir un lien d'aperçu frais à chaque
-        // lecture.
-        audio.src = `/api/preview/${encodeURIComponent(id)}`;
+        audio.src = String(previewUrl).startsWith('http')
+          ? previewUrl
+          : `/api/preview/${encodeURIComponent(id)}`;
         audio.currentTime = 0;
         audio.play().then(broadcast).catch(() => {
           currentId = null;
           broadcast();
         });
+      },
+      prefetch(url) {
+        if (url && String(url).startsWith('http') && warm.src !== url) warm.src = url;
       },
       stop() {
         audio.pause();
@@ -124,7 +128,7 @@ const Resonance = (() => {
       button.addEventListener('click', (event) => {
         event.preventDefault();
         event.stopPropagation();
-        player.toggle(button.dataset.trackId, Boolean(button.dataset.preview));
+        player.toggle(button.dataset.trackId, button.dataset.preview);
       });
     });
   }
