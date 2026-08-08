@@ -71,7 +71,7 @@ def like(target_id):
     if not other:
         return jsonify({"ok": False, "error": "Profil introuvable."}), 404
 
-    database.execute("INSERT OR IGNORE INTO profile_likes (from_id, to_id) VALUES (?, ?)", (user["id"], target_id))
+    database.execute("INSERT INTO profile_likes (from_id, to_id) VALUES (?, ?) ON CONFLICT DO NOTHING", (user["id"], target_id))
     database.execute("DELETE FROM passes WHERE from_id = ? AND to_id = ?", (user["id"], target_id))
 
     mutual = bool(database.query_one("SELECT 1 FROM profile_likes WHERE from_id = ? AND to_id = ?", (target_id, user["id"])))
@@ -100,7 +100,7 @@ def like(target_id):
 @auth.onboarding_required
 def pass_profile(target_id):
     user = auth.current_user()
-    database.execute("INSERT OR IGNORE INTO passes (from_id, to_id) VALUES (?, ?)", (user["id"], target_id))
+    database.execute("INSERT INTO passes (from_id, to_id) VALUES (?, ?) ON CONFLICT DO NOTHING", (user["id"], target_id))
     database.execute("DELETE FROM profile_likes WHERE from_id = ? AND to_id = ?", (user["id"], target_id))
     return jsonify({"ok": True})
 
