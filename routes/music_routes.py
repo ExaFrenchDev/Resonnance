@@ -90,21 +90,17 @@ def tracks_feed():
             genres = [int(genre_param)]
         except ValueError:
             pass
-
     try:
         offset = max(0, int(request.args.get("offset", 0)))
         size = min(24, max(1, int(request.args.get("size", 9))))
     except (TypeError, ValueError):
         offset, size = 0, 9
-
     if request.args.get("shuffle") == "1":
         session["feed_seed"] = random.randint(1, 10**6)
-
     seed = session.get("feed_seed")
     if not seed:
         seed = random.randint(1, 10**6)
         session["feed_seed"] = seed
-
     owned = database.query_all(
         "SELECT track_id, title, artist_name FROM user_tracks WHERE user_id = ?",
         (user["id"],),
@@ -112,10 +108,13 @@ def tracks_feed():
     owned_ids = [row["track_id"] for row in owned]
     owned_keys = {music_api.dedupe_key(row["title"], row["artist_name"]) for row in owned}
 
+    _started = time.time()
     try:
         page = music_api.discovery_page(genres, owned_ids, owned_keys, offset, size, seed)
     except music_api.MusicApiError as failure:
+        print(f"[FEED] genres={genres} offset={offset} ECHEC {(time.time() - _started) * 1000:.0f} ms", flush=True)
         return jsonify({"ok": False, "error": str(failure)}), 502
+    print(f"[FEED] genres={genres} offset={offset} -> {(time.time() - _started) * 1000:.0f} ms", flush=True)
     return jsonify({"ok": True, **page})
 
 
