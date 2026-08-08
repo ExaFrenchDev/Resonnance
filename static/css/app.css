@@ -37,6 +37,10 @@
 
 * { box-sizing: border-box; }
 
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
 html, body {
   margin: 0;
   padding: 0;
@@ -46,6 +50,22 @@ html, body {
   font-size: 16px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+body {
+  /* Hauteur réservée pour la tabbar mobile fixe (0 sur les gabarits qui
+     n'en affichent pas, ex. onboarding). Valeur réelle posée en media
+     query, sur les gabarits qui portent la classe .has-tabbar. */
+  --tabbar-h: 0px;
+}
+
+a, button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button {
+  touch-action: manipulation;
 }
 
 body::after {
@@ -241,7 +261,12 @@ textarea.input { resize: vertical; min-height: 92px; }
 
 /* ---------- Auth ---------- */
 
-.auth { min-height: 100vh; display: grid; grid-template-columns: 1.15fr 1fr; }
+.auth {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+}
 
 .auth__stage {
   padding: var(--pad);
@@ -282,7 +307,12 @@ textarea.input { resize: vertical; min-height: 92px; }
 
 /* ---------- Shell ---------- */
 
-.shell { min-height: 100vh; display: grid; grid-template-columns: var(--rail) 1fr; }
+.shell {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: var(--rail) 1fr;
+}
 
 .rail {
   border-right: 1.5px solid var(--ink);
@@ -293,6 +323,7 @@ textarea.input { resize: vertical; min-height: 92px; }
   position: sticky;
   top: 0;
   height: 100vh;
+  height: 100dvh;
 }
 
 .rail__nav { display: grid; gap: 1px; }
@@ -643,7 +674,12 @@ textarea.input { resize: vertical; min-height: 92px; }
 .inbox__preview { font-size: 13.5px; color: var(--ink-2); }
 .inbox__score { font-family: var(--mono); font-size: 12.5px; color: var(--flame); }
 
-.chat { display: grid; grid-template-rows: auto 1fr auto auto; height: 100vh; }
+.chat {
+  display: grid;
+  grid-template-rows: auto 1fr auto auto;
+  height: 100vh;
+  height: 100dvh;
+}
 
 .chat__head {
   display: flex;
@@ -684,7 +720,13 @@ textarea.input { resize: vertical; min-height: 92px; }
 
 .bubble__time { font-family: var(--mono); font-size: 9.5px; opacity: 0.6; margin-top: 3px; display: block; }
 
-.chat__compose { padding: 12px var(--pad) 18px; border-top: 1.5px solid var(--ink); display: flex; gap: 10px; align-items: flex-end; }
+.chat__compose {
+  padding: 12px var(--pad) calc(18px + env(safe-area-inset-bottom));
+  border-top: 1.5px solid var(--ink);
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
 .chat__compose textarea { flex: 1; max-height: 120px; min-height: 44px; resize: none; }
 
 .typing { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--blue); padding: 0 var(--pad); height: 18px; }
@@ -707,11 +749,45 @@ textarea.input { resize: vertical; min-height: 92px; }
 
 /* ---------- Appel ---------- */
 
-.call { position: fixed; inset: 0; z-index: 200; background: var(--paper); display: grid; place-items: center; padding: 24px; }
-.call__panel { width: min(440px, 100%); text-align: center; display: grid; gap: 18px; justify-items: center; }
+.call {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: var(--paper);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(24px, env(safe-area-inset-top)) 24px calc(24px + env(safe-area-inset-bottom));
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.call__panel {
+  width: min(440px, 100%);
+  max-width: 100%;
+  margin: auto;
+  text-align: center;
+  display: grid;
+  gap: 18px;
+  justify-items: center;
+}
 .call__status { font-family: var(--mono); font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--blue); }
 .call__timer { font-family: var(--display); font-size: 40px; color: var(--ink); line-height: 1; }
-.call__actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+
+.call__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+  width: 100%;
+  /* Toujours atteignable : si la vidéo pousse le contenu plus haut que
+     l'écran, les boutons (dont Raccrocher) restent visibles en bas plutôt
+     que de disparaître hors champ. */
+  position: sticky;
+  bottom: 0;
+  padding-top: 6px;
+  background: var(--paper);
+}
+
 .call__video { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; }
 .call__video video { width: 100%; border: 1.5px solid var(--ink); border-radius: var(--r); background: var(--paper-3); aspect-ratio: 3 / 4; object-fit: cover; }
 
@@ -813,14 +889,28 @@ textarea.input { resize: vertical; min-height: 92px; }
 
 @media (max-width: 900px) {
   .auth { grid-template-columns: 1fr; }
-  .auth__stage { border-right: none; border-bottom: 1.5px solid var(--ink); }
+  .auth__stage { border-right: none; border-bottom: 1.5px solid var(--ink); gap: 26px; }
+  /* Le formulaire (ce pour quoi on est venu) passe avant le bloc marketing
+     sur mobile : on ne fait plus défiler la personne devant tout le hero
+     avant de pouvoir se connecter ou s'inscrire. */
+  .auth__form { order: -1; }
+
   .shell { grid-template-columns: 1fr; }
   .rail { display: none; }
-  .page { padding-bottom: 88px; }
+
   .match { grid-template-columns: 1fr; gap: 18px; }
   .bubble { max-width: 84%; }
-  .call__video { grid-template-columns: 1fr; }
   .meter { grid-template-columns: 1fr; gap: 12px; }
+
+  body.has-tabbar {
+    --tabbar-h: calc(54px + env(safe-area-inset-bottom));
+  }
+
+  /* L'espace réservé en bas dépend du gabarit : les pages avec tabbar
+     (shell.html) ont besoin de la laisser respirer, celles sans (ex.
+     onboarding, qui étend plain.html) n'en ont pas besoin. */
+  .page { padding-bottom: calc(24px + var(--tabbar-h)); }
+  .chat { height: calc(100vh - var(--tabbar-h)); height: calc(100dvh - var(--tabbar-h)); }
 
   .tabbar {
     position: fixed;
@@ -839,7 +929,8 @@ textarea.input { resize: vertical; min-height: 92px; }
     display: grid;
     justify-items: center;
     gap: 2px;
-    padding: 6px 4px;
+    padding: 8px 4px;
+    min-height: 44px;
     font-family: var(--mono);
     font-size: 9.5px;
     letter-spacing: 0.06em;
@@ -851,10 +942,94 @@ textarea.input { resize: vertical; min-height: 92px; }
   .tabbar a svg { width: 19px; height: 19px; }
   .tabbar a.is-active { color: var(--flame); }
   .tabbar .rail__badge { position: absolute; top: -1px; right: 20%; margin: 0; }
+
+  /* Cibles tactiles un peu plus généreuses qu'au clavier/souris. */
+  .icon-btn { width: 42px; height: 42px; }
+  .play { width: 36px; height: 36px; }
+  .play svg { width: 12px; height: 12px; }
+
+  /* Écran d'appel : deux vidéos côte à côte tiennent mal sur un écran de
+     téléphone une fois empilées (ratio 3/4 chacune = ça déborde). On passe
+     à une incrustation façon FaceTime : la vidéo distante en plein cadre,
+     la vidéo locale en petite vignette par-dessus. */
+  .call__panel { gap: 12px; }
+  .call__video {
+    display: block;
+    position: relative;
+    width: 100%;
+    max-height: 46vh;
+    max-height: 46dvh;
+    border-radius: var(--r);
+    overflow: hidden;
+  }
+  .call__video video {
+    aspect-ratio: auto;
+    border-radius: 0;
+    border: none;
+  }
+  #remote-video {
+    width: 100%;
+    height: 100%;
+    max-height: 46vh;
+    max-height: 46dvh;
+  }
+  #local-video {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 27%;
+    max-width: 110px;
+    height: auto;
+    aspect-ratio: 3 / 4;
+    border: 1.5px solid var(--ink) !important;
+    border-radius: var(--r) !important;
+    box-shadow: 2px 2px 0 var(--press);
+    z-index: 2;
+  }
+}
+
+@media (max-width: 720px) {
+  .page { padding-left: var(--pad); padding-right: var(--pad); }
+  .page__head { margin-bottom: 22px; padding-bottom: 16px; }
+  .match { padding: 18px 0; }
+  .match__name { font-size: clamp(21px, 6vw, 26px); }
+  .chat__head { gap: 10px; }
+  .avatar--lg { width: 64px; height: 64px; font-size: 23px; }
+  .call__timer { font-size: 34px; }
 }
 
 @media (max-width: 560px) {
   .genre-grid { grid-template-columns: repeat(auto-fill, minmax(126px, 1fr)); }
-  .actionbar { position: fixed; left: 12px; right: 12px; bottom: 74px; margin: 0; }
+  .tile-grid { grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 8px; }
+
+  .actionbar {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: calc(12px + var(--tabbar-h));
+    margin: 0;
+  }
+
+  .meter:not(.meter--stacked) { grid-template-columns: 1fr; gap: 10px; }
   .meter__number { font-size: 46px; }
+
+  .card { padding: 16px; }
+  .stat-line > div { min-width: 100px; padding-right: 12px; }
+}
+
+@media (max-width: 420px) {
+  .genre-grid { grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); }
+  .tile-grid { grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); }
+
+  /* Une seule colonne pour la barre d'action : le bouton principal
+     mérite toute la largeur sur les petits écrans. */
+  .actionbar { flex-direction: column; align-items: stretch; }
+  .actionbar > .btn { width: 100%; }
+
+  .chat__head { padding: 10px var(--pad); }
+  .chat__compose { gap: 8px; }
+
+  #delete-panel .row,
+  .call__actions { flex-wrap: wrap; }
+  #delete-panel .row .btn { flex: 1 1 130px; }
 }
