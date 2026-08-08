@@ -1,4 +1,5 @@
 import concurrent.futures
+import logging
 import random
 import re
 import threading
@@ -10,7 +11,6 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from config import Config
-import logging
 
 log = logging.getLogger("resonance.music")
 logging.basicConfig(level=logging.INFO)
@@ -23,8 +23,7 @@ DEEZER_GENRES = "https://api.deezer.com/genre"
 
 _cache = {}
 _cache_lock = threading.Lock()
-_inflight = {}
-_inflight_lock = threading.Lock()
+_refreshing = set()
 
 _MAX_CACHE_ENTRIES = 2000
 
@@ -59,37 +58,11 @@ def _store(key, value, ttl):
                 _cache.pop(stale_key, None)
 
 
-def _compute(key, producer, ttl):
-    with _inflight_lock:
-        event = _inflight.get(key)
-        leader = event is None
-        if leader:
-            event = threading.Event()
-            _inflight[key] = event
-
-    if not leader:
-        event.wait(timeout=Config.HTTP_TIMEOUT * 3)
-        with _cache_lock:
-            entry = _cache.get(key)
-        if entry:
-            return entry[1]
-        return producer()
-
-    try:
-        value = producer()
-        _store(key, value, ttl)
-        return value
-    finally:
-        with _inflight_lock:
-            _inflight.pop(key, None)
-        event.set()
-
-
 def _refresh_async(key, producer, ttl):
-    with _inflight_lock:
-        if key in _inflight:
+    with _cache_lock:
+        if key in _refreshing:
             return
-        _inflight[key] = threading.Event()
+        _refreshing.add(key)
 
     def worker():
         try:
@@ -100,12 +73,16 @@ def _refresh_async(key, producer, ttl):
                 if entry:
                     _cache[key] = (time.time() + 60, entry[1])
         finally:
-            with _inflight_lock:
-                event = _inflight.pop(key, None)
-            if event:
-                event.set()
+            with _cache_lock:
+                _refreshing.discard(key)
 
     threading.Thread(target=worker, daemon=True).start()
+
+
+def _compute(key, producer, ttl):
+    value = producer()
+    _store(key, value, ttl)
+    return value
 
 
 def _cached(key, producer, ttl=None, stale_ttl=None):
@@ -191,6 +168,12 @@ _NOISE = re.compile(
     r"deluxe|radio|extended|instrumental|acoustic|explicit)[^\)\]]*[\)\]]",
     re.IGNORECASE,
 )
+
+
+def _norm(text):
+    text = unicodedata.normalize("NFKD", text or "")
+    text = "".join(c for c in text if not unicodedata.combining(c))
+    return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
 
 
 def _canonical(name):
@@ -297,6 +280,45 @@ def _clean_tracks(items, genre_id=None):
     return output
 
 
+def _rank(results, query):
+    q = _norm(query)
+    tokens = [t for t in q.split() if t]
+
+    def score(raw):
+        title = _norm(raw.get("trackName") or "")
+        artist = _norm(raw.get("artistName") or "")
+        hay = f"{artist} {title}"
+        value = 0
+
+        if title == q:
+            value += 140
+        if artist == q:
+            value += 110
+        if artist and q.startswith(artist + " "):
+            rest = q[len(artist):].strip()
+            if rest and title == rest:
+                value += 200
+            elif rest and rest in title:
+                value += 90
+        if title and q.endswith(" " + title):
+            value += 70
+        if tokens and all(t in hay for t in tokens):
+            value += 60
+        if title.startswith(q):
+            value += 35
+        if artist.startswith(q):
+            value += 20
+        value += sum(10 for t in tokens if t in hay)
+
+        if _NOISE.search(raw.get("trackName") or ""):
+            value -= 40
+        if raw.get("trackExplicitness") == "cleaned":
+            value -= 8
+        return -value
+
+    return sorted(results, key=score)
+
+
 def _lookup(ids):
     ids = [str(i) for i in ids if i]
     if not ids:
@@ -304,7 +326,8 @@ def _lookup(ids):
 
     chunks = [ids[i : i + 100] for i in range(0, len(ids), 100)]
 
-    def fetch(chunk):
+    out = {}
+    for chunk in chunks:
         payload = _get(
             f"{ITUNES_API}/lookup",
             {
@@ -314,14 +337,9 @@ def _lookup(ids):
                 "entity": "song",
             },
         )
-        return payload.get("results", [])
-
-    out = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=min(4, len(chunks))) as pool:
-        for results in pool.map(fetch, chunks):
-            for raw in results:
-                if raw.get("wrapperType") == "track" and raw.get("trackId"):
-                    out[str(raw["trackId"])] = raw
+        for raw in payload.get("results", []):
+            if raw.get("wrapperType") == "track" and raw.get("trackId"):
+                out[str(raw["trackId"])] = raw
     return out
 
 
@@ -442,111 +460,66 @@ def artist_top_tracks(artist_id, limit=10):
 
     return _cached(f"artist-top:{artist_id}:{limit}", producer, ttl=86400)
 
-def _norm(text):
-    text = unicodedata.normalize("NFKD", text or "")
-    text = "".join(c for c in text if not unicodedata.combining(c))
-    return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
-
-
-def _rank(results, query):
-    q = _norm(query)
-    tokens = [t for t in q.split() if t]
-
-    def score(raw):
-        title = _norm(raw.get("trackName") or "")
-        artist = _norm(raw.get("artistName") or "")
-        hay = f"{artist} {title}"
-        value = 0
-
-        if title == q:
-            value += 140
-        if artist == q:
-            value += 110
-        if artist and q.startswith(artist + " "):
-            rest = q[len(artist):].strip()
-            if rest and title == rest:
-                value += 200
-            elif rest and rest in title:
-                value += 90
-        if title and q.endswith(" " + title):
-            value += 70
-        if tokens and all(t in hay for t in tokens):
-            value += 60
-        if title.startswith(q):
-            value += 35
-        if artist.startswith(q):
-            value += 20
-        value += sum(10 for t in tokens if t in hay)
-
-        if _NOISE.search(raw.get("trackName") or ""):
-            value -= 40
-        if raw.get("trackExplicitness") == "cleaned":
-            value -= 8
-        return -value
-
-    return sorted(results, key=score)
-
 
 def search_tracks(query, limit=25):
     query = (query or "").strip()
     if len(query) < 2:
         return []
 
+    def _search(params):
+        base = {
+            "media": "music",
+            "entity": "song",
+            "country": STORE_COUNTRY,
+            "lang": STORE_LANG,
+        }
+        base.update(params)
+        return _get(f"{ITUNES_API}/search", base).get("results", [])
+
     def by_song():
-        payload = _get(
-            f"{ITUNES_API}/search",
-            {
-                "term": query,
-                "media": "music",
-                "entity": "song",
-                "country": STORE_COUNTRY,
-                "lang": STORE_LANG,
-                "limit": limit,
-            },
-        )
-        return payload.get("results", [])
+        return _search({"term": query, "limit": limit})
 
     def by_artist():
-        payload = _get(
-            f"{ITUNES_API}/search",
-            {
-                "term": query,
-                "media": "music",
-                "entity": "song",
-                "attribute": "artistTerm",
-                "country": STORE_COUNTRY,
-                "lang": STORE_LANG,
-                "limit": limit,
-            },
-        )
-        return payload.get("results", [])
+        return _search({"term": query, "attribute": "artistTerm", "limit": limit})
+
+    def by_split():
+        parts = query.split()
+        if len(parts) < 2:
+            return []
+        for cut in range(1, min(len(parts), 4)):
+            artist_part = " ".join(parts[:cut])
+            title_part = " ".join(parts[cut:])
+            results = _search({"term": title_part, "attribute": "songTerm", "limit": 40})
+            wanted = _norm(artist_part)
+            hits = [r for r in results if wanted and wanted in _norm(r.get("artistName") or "")]
+            if hits:
+                return hits
+        return []
 
     def producer():
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-            songs = pool.submit(by_song)
-            artists = pool.submit(by_artist)
+        def safe(fn):
             try:
-                song_results = songs.result()
+                return fn()
             except MusicApiError:
-                song_results = []
-            try:
-                artist_results = artists.result()
-            except MusicApiError:
-                artist_results = []
+                return []
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+            futures = [pool.submit(safe, fn) for fn in (by_split, by_song, by_artist)]
+            split_results, song_results, artist_results = [f.result() for f in futures]
 
         merged = {}
-        for raw in song_results + artist_results:
+        for raw in split_results + song_results + artist_results:
             tid = raw.get("trackId")
             if tid and tid not in merged:
                 merged[tid] = raw
 
-        return _clean_tracks(_rank(list(merged.values()), query))[:limit]
-
-        needle = query.lower()
-        exact = [r for r in artist_results if (r.get("artistName") or "").lower() == needle]
-        exact_ids = {r.get("trackId") for r in exact}
-        rest = [r for r in artist_results if r.get("trackId") not in exact_ids]
-        return _clean_tracks(exact + song_results + rest)[:limit]
+        ranked = _rank(list(merged.values()), query)
+        log.info(
+            "SEARCH %r -> split=%d song=%d artist=%d fusion=%d | top: %s",
+            query, len(split_results), len(song_results), len(artist_results), len(merged),
+            " || ".join(f"{r.get('artistName')} - {r.get('trackName')}" for r in ranked[:5]),
+        )
+        return _clean_tracks(ranked)[:limit]
 
     return _cached(f"search:{query.lower()}:{limit}", producer, ttl=1800)
 
@@ -556,11 +529,7 @@ def _discovery_order(genre_ids, seed):
     key = f"disco:{'-'.join(map(str, genres))}:{seed}"
 
     def producer():
-        results = {}
-        with concurrent.futures.ThreadPoolExecutor(max_workers=min(6, len(genres))) as pool:
-            futures = {pool.submit(_safe_chart, g, 50): g for g in genres}
-            for future in concurrent.futures.as_completed(futures):
-                results[futures[future]] = future.result()
+        results = {g: _safe_chart(g, 50) for g in genres}
 
         ordered = []
         seen = set()
@@ -600,14 +569,16 @@ def discovery_pool(genre_ids, exclude_ids=(), size=30):
     return discovery_page(genre_ids, exclude_ids, (), 0, size, random.randint(1, 10**6))["tracks"]
 
 
-def warm_cache():
-    def worker():
+def warm_cache(blocking=False):
+    def work():
         try:
             _fr_chart_pool()
-            genre_ids = [g["genre_id"] for g in list_genres()[:12]]
-            with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
-                list(pool.map(lambda g: _safe_chart(g, 50), genre_ids))
+            for genre in list_genres()[:12]:
+                _safe_chart(genre["genre_id"], 50)
         except Exception:
             pass
 
-    threading.Thread(target=worker, daemon=True).start()
+    if blocking:
+        work()
+    else:
+        threading.Thread(target=work, daemon=True).start()
