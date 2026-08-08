@@ -774,6 +774,18 @@ textarea.input { resize: vertical; min-height: 92px; }
   transition: transform 0.16s var(--ease), box-shadow 0.16s;
 }
 
+.tile--skeleton {
+  min-height: 230px;
+  border-radius: 4px;
+  background: linear-gradient(100deg, #1a1a1e 30%, #26262c 50%, #1a1a1e 70%);
+  background-size: 200% 100%;
+  animation: tile-shimmer 1.2s linear infinite;
+}
+
+@keyframes tile-shimmer {
+  to { background-position: -200% 0; }
+}
+
 .tile:hover { transform: translate(-2px, -2px); box-shadow: 3px 3px 0 var(--ink); }
 .tile[data-picked='1'] { box-shadow: 3px 3px 0 var(--blue); }
 .tile__art { position: relative; aspect-ratio: 1; background: var(--paper-3); border-bottom: 1.5px solid var(--ink); }
