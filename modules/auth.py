@@ -75,7 +75,7 @@ def register(email, username, password, display_name="", newsletter=True, base_u
 
     user_id = database.execute(
         """INSERT INTO users (email, username, password_hash, display_name, avatar_seed, newsletter)
-           VALUES (?, ?, ?, ?, ?, ?)""",
+           VALUES (?, ?, ?, ?, ?, ?) RETURNING id""",
         (
             email,
             username,
@@ -123,7 +123,7 @@ def open_session(user):
     session.permanent = True
     session["user_id"] = user["id"]
     session["username"] = user["username"]
-    database.execute("UPDATE users SET last_seen = datetime('now') WHERE id = ?", (user["id"],))
+    database.execute("UPDATE users SET last_seen = to_char(now(), 'YYYY-MM-DD HH24:MI:SS') WHERE id = ?", (user["id"],))
 
 
 def close_session():
