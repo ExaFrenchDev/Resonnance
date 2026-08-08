@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="{{ asset_url('css/app.css') }}">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27><rect width=%2732%27 height=%2732%27 fill=%27%230e0e10%27/><circle cx=%2713%27 cy=%2716%27 r=%278%27 fill=%27%23ff5a33%27/><circle cx=%2719%27 cy=%2716%27 r=%278%27 fill=%27%237c8cff%27 fill-opacity=%27.85%27/></svg>">
 </head>
-<body>
+<body class="{% block bodyclass %}{% endblock %}">
 {% block body %}{% endblock %}
 <div class="toasts"></div>
 <script src="{{ asset_url('js/core.js') }}"></script>
