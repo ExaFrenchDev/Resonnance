@@ -19,7 +19,10 @@ ITUNES_API = "https://itunes.apple.com"
 APPLE_RSS = "https://rss.applemarketingtools.com/api/v2/{country}/music/most-played/{limit}/songs.json"
 STORE_COUNTRY = "fr"
 STORE_LANG = "fr_fr"
-DEEZER_GENRES = "https://api.deezer.com/genre"
+
+DEEZER_API = "https://api.deezer.com"
+DEEZER_GENRES = f"{DEEZER_API}/genre"
+DEEZER_ID_OFFSET = 10**12
 
 _cache = {}
 _cache_lock = threading.Lock()
@@ -116,9 +119,26 @@ def _get(url, params=None):
     except ValueError:
         raise MusicApiError("Réponse illisible du service musical.")
     log.info("GET %s -> %.0f ms", url, (time.time() - started) * 1000)
-    if isinstance(payload, dict) and payload.get("errorMessage"):
-        raise MusicApiError(payload["errorMessage"])
+    if isinstance(payload, dict):
+        if payload.get("errorMessage"):
+            raise MusicApiError(payload["errorMessage"])
+        if payload.get("error"):
+            detail = payload["error"]
+            message = detail.get("message") if isinstance(detail, dict) else str(detail)
+            raise MusicApiError(message or "Erreur du service musical.")
     return payload
+
+
+def _encode_id(raw_id, source):
+    value = int(raw_id or 0)
+    return value + DEEZER_ID_OFFSET if source == "deezer" else value
+
+
+def _decode_id(track_id):
+    value = int(track_id or 0)
+    if value >= DEEZER_ID_OFFSET:
+        return value - DEEZER_ID_OFFSET, "deezer"
+    return value, "apple"
 
 
 _GENRE_ALIASES = {
@@ -236,7 +256,7 @@ def normalise_track(raw, genre_id=None):
     if genre_id is None:
         genre_id = _genre_id_for(raw.get("primaryGenreName"))
     return {
-        "track_id": int(raw.get("trackId") or 0),
+        "track_id": _encode_id(raw.get("trackId"), "apple"),
         "title": raw.get("trackName") or raw.get("trackCensoredName") or "Sans titre",
         "artist_id": int(raw.get("artistId") or 0),
         "artist_name": raw.get("artistName") or "Artiste inconnu",
@@ -245,7 +265,28 @@ def normalise_track(raw, genre_id=None):
         "preview": raw.get("previewUrl") or "",
         "duration": int((raw.get("trackTimeMillis") or 0) // 1000),
         "genre_id": int(genre_id or 0),
+        "source": "apple",
         "link": raw.get("trackViewUrl") or "",
+    }
+
+
+def _normalise_deezer(raw, proxy=True):
+    artist = raw.get("artist") or {}
+    album = raw.get("album") or {}
+    encoded = _encode_id(raw.get("id"), "deezer")
+    direct = raw.get("preview") or ""
+    return {
+        "track_id": encoded,
+        "title": raw.get("title_short") or raw.get("title") or "Sans titre",
+        "artist_id": int(artist.get("id") or 0),
+        "artist_name": artist.get("name") or "Artiste inconnu",
+        "album_title": album.get("title") or "",
+        "cover": album.get("cover_medium") or album.get("cover") or FALLBACK_COVER,
+        "preview": (f"/api/preview/{encoded}" if direct else "") if proxy else direct,
+        "duration": int(raw.get("duration") or 0),
+        "genre_id": 0,
+        "source": "deezer",
+        "link": raw.get("link") or "",
     }
 
 
@@ -263,12 +304,11 @@ def dedupe_key(title, artist_name):
     return _dedupe_key({"title": title or "", "artist_name": artist_name or ""})
 
 
-def _clean_tracks(items, genre_id=None):
+def _dedupe_tracks(tracks):
     seen_ids = set()
     seen_keys = set()
     output = []
-    for raw in items:
-        track = normalise_track(raw, genre_id)
+    for track in tracks:
         if not track["track_id"] or not track["preview"]:
             continue
         key = _dedupe_key(track)
@@ -280,28 +320,32 @@ def _clean_tracks(items, genre_id=None):
     return output
 
 
-def _rank(results, query):
+def _clean_tracks(items, genre_id=None):
+    return _dedupe_tracks([normalise_track(raw, genre_id) for raw in items])
+
+
+def _rank_tracks(tracks, query):
     q = _norm(query)
     tokens = [t for t in q.split() if t]
 
-    def score(raw):
-        title = _norm(raw.get("trackName") or "")
-        artist = _norm(raw.get("artistName") or "")
+    def score(track):
+        title = _norm(track["title"])
+        artist = _norm(track["artist_name"])
         hay = f"{artist} {title}"
         value = 0
 
-        if title == q:
-            value += 140
-        if artist == q:
-            value += 110
         if artist and q.startswith(artist + " "):
             rest = q[len(artist):].strip()
             if rest and title == rest:
-                value += 200
+                value += 220
             elif rest and rest in title:
-                value += 90
-        if title and q.endswith(" " + title):
-            value += 70
+                value += 95
+        if title and q.endswith(" " + title) and title != q:
+            value += 75
+        if title == q:
+            value += 140
+        if artist == q:
+            value += 120
         if tokens and all(t in hay for t in tokens):
             value += 60
         if title.startswith(q):
@@ -310,13 +354,11 @@ def _rank(results, query):
             value += 20
         value += sum(10 for t in tokens if t in hay)
 
-        if _NOISE.search(raw.get("trackName") or ""):
+        if _NOISE.search(track["title"]):
             value -= 40
-        if raw.get("trackExplicitness") == "cleaned":
-            value -= 8
         return -value
 
-    return sorted(results, key=score)
+    return sorted(tracks, key=score)
 
 
 def _lookup(ids):
@@ -324,10 +366,9 @@ def _lookup(ids):
     if not ids:
         return {}
 
-    chunks = [ids[i : i + 100] for i in range(0, len(ids), 100)]
-
     out = {}
-    for chunk in chunks:
+    for index in range(0, len(ids), 100):
+        chunk = ids[index : index + 100]
         payload = _get(
             f"{ITUNES_API}/lookup",
             {
@@ -344,13 +385,21 @@ def _lookup(ids):
 
 
 def get_track(track_id):
+    raw_id, source = _decode_id(track_id)
+
+    if source == "deezer":
+        def producer():
+            return _normalise_deezer(_get(f"{DEEZER_API}/track/{raw_id}"), proxy=False)
+
+        return _cached(f"track:dz:{raw_id}", producer, ttl=60, stale_ttl=0)
+
     def producer():
-        raw = _lookup([track_id]).get(str(int(track_id)))
+        raw = _lookup([raw_id]).get(str(raw_id))
         if not raw:
             raise MusicApiError("Morceau introuvable.")
         return normalise_track(raw)
 
-    return _cached(f"track:{int(track_id)}", producer, ttl=86400)
+    return _cached(f"track:ap:{raw_id}", producer, ttl=86400)
 
 
 def _fr_chart_pool():
@@ -466,7 +515,7 @@ def search_tracks(query, limit=25):
     if len(query) < 2:
         return []
 
-    def _search(params):
+    def _apple(params):
         base = {
             "media": "music",
             "entity": "song",
@@ -474,24 +523,33 @@ def search_tracks(query, limit=25):
             "lang": STORE_LANG,
         }
         base.update(params)
-        return _get(f"{ITUNES_API}/search", base).get("results", [])
+        results = _get(f"{ITUNES_API}/search", base).get("results", [])
+        return [normalise_track(raw) for raw in results]
 
-    def by_song():
-        return _search({"term": query, "limit": limit})
+    def _deezer(expression, size=25):
+        payload = _get(
+            f"{DEEZER_API}/search/track",
+            {"q": expression, "limit": size, "order": "RANKING"},
+        )
+        return [_normalise_deezer(raw) for raw in payload.get("data", [])]
 
-    def by_artist():
-        return _search({"term": query, "attribute": "artistTerm", "limit": limit})
+    def apple_song():
+        return _apple({"term": query, "limit": limit})
 
-    def by_split():
+    def apple_artist():
+        return _apple({"term": query, "attribute": "artistTerm", "limit": limit})
+
+    def deezer_plain():
+        return _deezer(query, limit)
+
+    def deezer_split():
         parts = query.split()
         if len(parts) < 2:
-            return []
+            return _deezer(f'artist:"{query}"', limit)
         for cut in range(1, min(len(parts), 4)):
             artist_part = " ".join(parts[:cut])
             title_part = " ".join(parts[cut:])
-            results = _search({"term": title_part, "attribute": "songTerm", "limit": 40})
-            wanted = _norm(artist_part)
-            hits = [r for r in results if wanted and wanted in _norm(r.get("artistName") or "")]
+            hits = _deezer(f'artist:"{artist_part}" track:"{title_part}"', 20)
             if hits:
                 return hits
         return []
@@ -503,23 +561,19 @@ def search_tracks(query, limit=25):
             except MusicApiError:
                 return []
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
-            futures = [pool.submit(safe, fn) for fn in (by_split, by_song, by_artist)]
-            split_results, song_results, artist_results = [f.result() for f in futures]
+        strategies = (deezer_split, deezer_plain, apple_song, apple_artist)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            futures = [pool.submit(safe, fn) for fn in strategies]
+            split_dz, plain_dz, apple_s, apple_a = [f.result() for f in futures]
 
-        merged = {}
-        for raw in split_results + song_results + artist_results:
-            tid = raw.get("trackId")
-            if tid and tid not in merged:
-                merged[tid] = raw
-
-        ranked = _rank(list(merged.values()), query)
+        merged = _dedupe_tracks(split_dz + plain_dz + apple_s + apple_a)
+        ranked = _rank_tracks(merged, query)
         log.info(
-            "SEARCH %r -> split=%d song=%d artist=%d fusion=%d | top: %s",
-            query, len(split_results), len(song_results), len(artist_results), len(merged),
-            " || ".join(f"{r.get('artistName')} - {r.get('trackName')}" for r in ranked[:5]),
+            "SEARCH %r -> dz_split=%d dz=%d ap_song=%d ap_artist=%d fusion=%d | top: %s",
+            query, len(split_dz), len(plain_dz), len(apple_s), len(apple_a), len(merged),
+            " || ".join(f"{t['artist_name']} - {t['title']}" for t in ranked[:5]),
         )
-        return _clean_tracks(ranked)[:limit]
+        return ranked[:limit]
 
     return _cached(f"search:{query.lower()}:{limit}", producer, ttl=1800)
 
