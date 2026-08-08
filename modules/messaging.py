@@ -35,7 +35,7 @@ def open_conversation(user_a, user_b, enforce=True):
         database.execute("UPDATE conversations SET score = ? WHERE id = ?", (score, existing["id"]))
         return existing["id"]
     return database.execute(
-        "INSERT INTO conversations (user_a, user_b, score) VALUES (?, ?, ?)", (left, right, score)
+        "INSERT INTO conversations (user_a, user_b, score) VALUES (?, ?, ?) RETURNING id", (left, right, score)
     )
 
 
@@ -94,16 +94,16 @@ def post(conversation_id, sender_id, body, kind="text", payload=""):
     if len(body) > 2000:
         raise MessagingError("Message trop long (2000 caractères maximum).")
     message_id = database.execute(
-        "INSERT INTO messages (conversation_id, sender_id, kind, body, payload) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO messages (conversation_id, sender_id, kind, body, payload) VALUES (?, ?, ?, ?, ?) RETURNING id",
         (conversation_id, sender_id, kind, body, payload),
     )
-    database.execute("UPDATE conversations SET updated_at = datetime('now') WHERE id = ?", (conversation_id,))
+    database.execute("UPDATE conversations SET updated_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS') WHERE id = ?", (conversation_id,))
     return database.query_one("SELECT * FROM messages WHERE id = ?", (message_id,))
 
 
 def mark_read(conversation_id, reader_id):
     database.execute(
-        "UPDATE messages SET read_at = datetime('now') WHERE conversation_id = ? AND sender_id != ? AND read_at IS NULL",
+        "UPDATE messages SET read_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS') WHERE conversation_id = ? AND sender_id != ? AND read_at IS NULL",
         (conversation_id, reader_id),
     )
 
