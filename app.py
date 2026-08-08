@@ -72,7 +72,7 @@ def create_app():
     realtime.register(socketio, lambda: request.url_root.rstrip("/") if request else "")
 
     from modules.music_api import warm_cache
-    warm_cache()
+    warm_cache(blocking=True)
 
     return app
 
