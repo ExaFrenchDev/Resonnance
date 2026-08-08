@@ -47,7 +47,8 @@ def save_genres():
 
     database.execute("DELETE FROM user_genres WHERE user_id = ?", (user["id"],))
     database.execute_many(
-        "INSERT OR REPLACE INTO user_genres (user_id, genre_id, genre_name, weight) VALUES (?, ?, ?, 1.0)",
+        """INSERT INTO user_genres (user_id, genre_id, genre_name, weight) VALUES (?, ?, ?, 1.0)
+           ON CONFLICT (user_id, genre_id) DO UPDATE SET genre_name = EXCLUDED.genre_name, weight = EXCLUDED.weight""",
         [(user["id"], genre_id, name) for genre_id, name in cleaned],
     )
     if user["onboarding_step"] == "genres":
@@ -140,9 +141,17 @@ def add_track():
         return jsonify({"ok": False, "error": "Morceau invalide."}), 400
 
     database.execute(
-        """INSERT OR REPLACE INTO user_tracks
+        """INSERT INTO user_tracks
            (user_id, track_id, title, artist_id, artist_name, album_title, cover, preview, genre_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT (user_id, track_id) DO UPDATE SET
+               title = EXCLUDED.title,
+               artist_id = EXCLUDED.artist_id,
+               artist_name = EXCLUDED.artist_name,
+               album_title = EXCLUDED.album_title,
+               cover = EXCLUDED.cover,
+               preview = EXCLUDED.preview,
+               genre_id = EXCLUDED.genre_id""",
         (
             user["id"],
             track_id,
