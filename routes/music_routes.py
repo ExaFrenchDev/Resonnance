@@ -1,4 +1,6 @@
-from flask import Blueprint, jsonify, redirect, render_template, request, url_for
+import random
+
+from flask import Blueprint, jsonify, redirect, render_template, request, session, url_for
 
 from config import Config
 from modules import auth, database, matching, music_api
@@ -51,6 +53,7 @@ def save_genres():
            ON CONFLICT (user_id, genre_id) DO UPDATE SET genre_name = EXCLUDED.genre_name, weight = EXCLUDED.weight""",
         [(user["id"], genre_id, name) for genre_id, name in cleaned],
     )
+    session.pop("feed_seed", None)
     if user["onboarding_step"] == "genres":
         database.execute("UPDATE users SET onboarding_step = 'tracks' WHERE id = ?", (user["id"],))
     return jsonify({"ok": True, "redirect": url_for("music.tracks_page")})
@@ -87,23 +90,38 @@ def tracks_feed():
             genres = [int(genre_param)]
         except ValueError:
             pass
-    owned = [row["track_id"] for row in database.query_all("SELECT track_id FROM user_tracks WHERE user_id = ?", (user["id"],))]
+
     try:
-        pool = music_api.discovery_pool(genres, owned, size=36)
+        offset = max(0, int(request.args.get("offset", 0)))
+        size = min(24, max(1, int(request.args.get("size", 9))))
+    except (TypeError, ValueError):
+        offset, size = 0, 9
+
+    if request.args.get("shuffle") == "1":
+        session["feed_seed"] = random.randint(1, 10**6)
+
+    seed = session.get("feed_seed")
+    if not seed:
+        seed = random.randint(1, 10**6)
+        session["feed_seed"] = seed
+
+    owned = database.query_all(
+        "SELECT track_id, title, artist_name FROM user_tracks WHERE user_id = ?",
+        (user["id"],),
+    )
+    owned_ids = [row["track_id"] for row in owned]
+    owned_keys = {music_api.dedupe_key(row["title"], row["artist_name"]) for row in owned}
+
+    try:
+        page = music_api.discovery_page(genres, owned_ids, owned_keys, offset, size, seed)
     except music_api.MusicApiError as failure:
         return jsonify({"ok": False, "error": str(failure)}), 502
-    return jsonify({"ok": True, "tracks": pool})
+    return jsonify({"ok": True, **page})
 
 
 @bp.get("/api/preview/<int:track_id>")
 @auth.login_required
 def track_preview(track_id):
-    """Redirige vers une URL d'aperçu Deezer fraîchement récupérée.
-
-    Le player audio (core.js) pointe toujours vers cette route plutôt que
-    vers l'URL brute renvoyée par Deezer, car celle-ci expire. On refait
-    donc l'appel à chaque lecture pour ne jamais servir un lien mort.
-    """
     try:
         track = music_api.get_track(track_id)
     except music_api.MusicApiError as failure:
@@ -112,7 +130,7 @@ def track_preview(track_id):
     if not preview:
         return jsonify({"ok": False, "error": "Aucun extrait disponible pour ce morceau."}), 404
     response = redirect(preview, code=302)
-    response.headers["Cache-Control"] = "no-store"
+    response.headers["Cache-Control"] = "public, max-age=86400"
     return response
 
 
