@@ -13,7 +13,7 @@ def _int(name, default):
 
 class Config:
     SECRET_KEY = os.getenv("SECRET_KEY", "resonance-dev-key-a-changer")
-    DATABASE_PATH = os.getenv("DATABASE_PATH", os.path.join(os.path.dirname(os.path.abspath(__file__)), "resonance.db"))
+    DATABASE_URL = os.getenv("DATABASE_URL", "")
 
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
