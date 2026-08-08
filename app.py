@@ -24,10 +24,6 @@ def create_app():
 
     @app.template_global()
     def asset_url(filename):
-        """URL d'un fichier static/ avec un paramètre de version basé sur sa
-        date de modification, pour forcer le navigateur à récupérer la
-        nouvelle version dès qu'on modifie app.css / core.js / etc., au lieu
-        de servir une copie mise en cache."""
         path = os.path.join(app.static_folder, filename)
         try:
             version = int(os.path.getmtime(path))
@@ -52,7 +48,7 @@ def create_app():
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
         return response
 
-   @app.route("/sw.js")
+    @app.route("/sw.js")
     def service_worker():
         response = send_from_directory(app.static_folder, "sw.js")
         response.headers["Service-Worker-Allowed"] = "/"
@@ -63,7 +59,7 @@ def create_app():
     @app.route("/ping")
     def ping():
         return "pong", 200
-        
+
     @app.errorhandler(404)
     def not_found(_):
         if request.path.startswith("/api/"):
