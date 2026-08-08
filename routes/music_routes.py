@@ -130,7 +130,10 @@ def track_preview(track_id):
     if not preview:
         return jsonify({"ok": False, "error": "Aucun extrait disponible pour ce morceau."}), 404
     response = redirect(preview, code=302)
-    response.headers["Cache-Control"] = "public, max-age=86400"
+    if (track or {}).get("source") == "deezer":
+        response.headers["Cache-Control"] = "no-store"
+    else:
+        response.headers["Cache-Control"] = "public, max-age=86400"
     return response
 
 
