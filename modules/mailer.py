@@ -1,4 +1,8 @@
+import smtplib
+import ssl
 import threading
+from email.message import EmailMessage
+from email.utils import formataddr
 
 import requests
 
@@ -26,30 +30,56 @@ def _render(content, base_url=""):
     return _BASE.format(content=content, unsub=f"{base_url}/parametres")
 
 
+def _send_smtp(to_address, subject, html, text):
+    message = EmailMessage()
+    message["From"] = formataddr((Config.MAIL_FROM_NAME, Config.SMTP_USER))
+    message["To"] = to_address
+    message["Subject"] = subject
+    message.set_content(text)
+    message.add_alternative(html, subtype="html")
+
+    context = ssl.create_default_context()
+    with smtplib.SMTP("smtp.gmail.com", 587, timeout=25) as server:
+        server.ehlo()
+        server.starttls(context=context)
+        server.login(Config.SMTP_USER, Config.SMTP_PASSWORD)
+        server.send_message(message)
+    return True
+
+
+def _send_resend(to_address, subject, html, text):
+    response = requests.post(
+        "https://api.resend.com/emails",
+        headers={"Authorization": f"Bearer {Config.RESEND_API_KEY}"},
+        json={
+            "from": f"{Config.MAIL_FROM_NAME} <{Config.RESEND_FROM_ADDRESS}>",
+            "to": [to_address],
+            "subject": subject,
+            "html": html,
+            "text": text,
+        },
+        timeout=20,
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(f"{response.status_code} {response.text}")
+    return True
+
+
 def _send_sync(to_address, subject, html, text):
-    if not Config.RESEND_API_KEY:
-        print(f"[mail:console] -> {to_address} | {subject}\n{text}\n")
-        return False
-    try:
-        response = requests.post(
-            "https://api.resend.com/emails",
-            headers={"Authorization": f"Bearer {Config.RESEND_API_KEY}"},
-            json={
-                "from": f"{Config.MAIL_FROM_NAME} <{Config.RESEND_FROM_ADDRESS}>",
-                "to": [to_address],
-                "subject": subject,
-                "html": html,
-                "text": text,
-            },
-            timeout=20,
-        )
-        if response.status_code >= 400:
-            print(f"[mail:error] {to_address} -> {response.status_code} {response.text}")
-            return False
-        return True
-    except Exception as error:
-        print(f"[mail:error] {to_address} -> {error}")
-        return False
+    if Config.SMTP_USER and Config.SMTP_PASSWORD:
+        try:
+            return _send_smtp(to_address, subject, html, text)
+        except Exception as error:
+            print(f"[mail:smtp:error] {to_address} -> {error}", flush=True)
+
+    if Config.RESEND_API_KEY:
+        try:
+            return _send_resend(to_address, subject, html, text)
+        except Exception as error:
+            print(f"[mail:resend:error] {to_address} -> {error}", flush=True)
+
+    print(f"[mail:console] -> {to_address} | {subject}\n{text}\n", flush=True)
+    return False
 
 
 def send(to_address, subject, html, text, blocking=False):
