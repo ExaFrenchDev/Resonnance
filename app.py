@@ -59,11 +59,11 @@ def create_app():
             response.headers["Cache-Control"] = "no-cache"
             response.mimetype = "application/javascript"
             return response
-    
+            
     @app.route("/ping")
     def ping():
         return "pong", 200
-
+        
     @app.errorhandler(404)
     def not_found(_):
         if request.path.startswith("/api/"):
