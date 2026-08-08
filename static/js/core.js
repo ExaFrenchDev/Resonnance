@@ -57,11 +57,23 @@ const Resonance = (() => {
   const player = (() => {
     const audio = new Audio();
     audio.preload = 'none';
-    audio.volume = 0.85;
     const warm = new Audio();
     warm.preload = 'auto';
+
+    let volume = 0.55;
+    try {
+      if (window.name && window.name.startsWith('vol:')) {
+        const saved = Number(window.name.slice(4));
+        if (!Number.isNaN(saved) && saved >= 0 && saved <= 1) volume = saved;
+      }
+    } catch (error) {
+      /* valeur par défaut */
+    }
+    audio.volume = volume;
+
     let currentId = null;
     const listeners = new Set();
+    const volumeListeners = new Set();
 
     function broadcast() {
       listeners.forEach((fn) => fn(currentId, !audio.paused));
@@ -94,6 +106,7 @@ const Resonance = (() => {
           ? previewUrl
           : `/api/preview/${encodeURIComponent(id)}`;
         audio.currentTime = 0;
+        audio.volume = volume;
         audio.play().then(broadcast).catch(() => {
           currentId = null;
           broadcast();
@@ -101,6 +114,23 @@ const Resonance = (() => {
       },
       prefetch(url) {
         if (url && String(url).startsWith('http') && warm.src !== url) warm.src = url;
+      },
+      setVolume(value) {
+        volume = Math.max(0, Math.min(1, Number(value) || 0));
+        audio.volume = volume;
+        try {
+          window.name = `vol:${volume}`;
+        } catch (error) {
+          /* pas de persistance */
+        }
+        volumeListeners.forEach((fn) => fn(volume));
+      },
+      get volume() {
+        return volume;
+      },
+      onVolumeChange(fn) {
+        volumeListeners.add(fn);
+        return () => volumeListeners.delete(fn);
       },
       stop() {
         audio.pause();
