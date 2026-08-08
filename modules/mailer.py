@@ -39,13 +39,25 @@ def _send_smtp(to_address, subject, html, text):
     message.add_alternative(html, subtype="html")
 
     context = ssl.create_default_context()
-    with smtplib.SMTP("smtp.gmail.com", 587, timeout=25) as server:
-        server.ehlo()
-        server.starttls(context=context)
-        server.login(Config.SMTP_USER, Config.SMTP_PASSWORD)
-        server.send_message(message)
-    return True
+    last_error = None
 
+    for port in (465, 587):
+        try:
+            if port == 465:
+                with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15, context=context) as server:
+                    server.login(Config.SMTP_USER, Config.SMTP_PASSWORD)
+                    server.send_message(message)
+            else:
+                with smtplib.SMTP("smtp.gmail.com", 587, timeout=15) as server:
+                    server.ehlo()
+                    server.starttls(context=context)
+                    server.login(Config.SMTP_USER, Config.SMTP_PASSWORD)
+                    server.send_message(message)
+            return True
+        except Exception as error:
+            last_error = f"port {port}: {error}"
+
+    raise RuntimeError(last_error)
 
 def _send_resend(to_address, subject, html, text):
     response = requests.post(
