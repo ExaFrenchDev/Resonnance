@@ -41,6 +41,27 @@ def _session_user():
     return database.query_one("SELECT id, username, display_name, email, avatar_seed FROM users WHERE id = ?", (user_id,))
 
 
+def _call_bubble(socketio, conversation, user, text):
+    """Écrit une bulle système dans le fil et la diffuse aux deux participants."""
+    try:
+        message = messaging.post(conversation["id"], user["id"], text, kind="call")
+    except messaging.MessagingError:
+        return
+    payload = {
+        "id": message["id"],
+        "conversation_id": conversation["id"],
+        "sender_id": user["id"],
+        "sender_name": user["display_name"] or user["username"],
+        "kind": "call",
+        "body": message["body"],
+        "payload": message["payload"],
+        "created_at": message["created_at"],
+    }
+    socketio.emit("message:new", payload, to=conversation_room(conversation["id"]))
+    other_id = messaging.partner_id(conversation, user["id"])
+    socketio.emit("inbox:bump", payload, to=user_room(other_id))
+
+
 def register(socketio, base_url_getter):
     @socketio.on("connect")
     def handle_connect():
@@ -158,10 +179,14 @@ def register(socketio, base_url_getter):
             return
         other_id = messaging.partner_id(conversation, user["id"])
         mode = "video" if data.get("mode") == "video" else "audio"
+        label = "vidéo" if mode == "video" else "audio"
+
         if not is_online(other_id):
             messaging.log_call(conversation["id"], user["id"], mode, "missed")
+            _call_bubble(socketio, conversation, user, f"Appel {label} manqué")
             emit("call:unavailable", {"conversation_id": conversation["id"], "reason": "Personne indisponible pour le moment."})
             return
+
         socketio.emit(
             "call:incoming",
             {
@@ -217,12 +242,24 @@ def register(socketio, base_url_getter):
         except (messaging.MessagingError, ValueError, TypeError):
             return
         other_id = messaging.partner_id(conversation, user["id"])
-        duration = int(data.get("duration", 0) or 0)
+        duration = max(0, int(data.get("duration", 0) or 0))
         status = data.get("status", "ended")
-        messaging.log_call(conversation["id"], user["id"], data.get("mode", "audio"), status, duration)
+        mode = "video" if data.get("mode") == "video" else "audio"
+        label = "vidéo" if mode == "video" else "audio"
+        is_caller = bool(data.get("is_caller"))
+
+        messaging.log_call(conversation["id"], user["id"], mode, status, duration)
+
         if duration > 0:
-            minutes, seconds = divmod(duration, 60)
-            messaging.post(conversation["id"], user["id"], f"Appel terminé — {minutes:02d}:{seconds:02d}", kind="call")
+            if is_caller:
+                minutes, seconds = divmod(duration, 60)
+                _call_bubble(socketio, conversation, user, f"Appel {label} — {minutes:02d}:{seconds:02d}")
+        elif status == "refused":
+            _call_bubble(socketio, conversation, user, f"Appel {label} refusé")
+        elif is_caller:
+            text = "sans réponse" if status in ("missed", "ended") else "échoué"
+            _call_bubble(socketio, conversation, user, f"Appel {label} {text}")
+
         socketio.emit(
             "call:ended",
             {"conversation_id": conversation["id"], "from_id": user["id"], "duration": duration},
