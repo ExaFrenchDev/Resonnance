@@ -64,7 +64,7 @@ def _call_bubble(socketio, conversation, user, text):
 
 def register(socketio, base_url_getter):
     @socketio.on("connect")
-    def handle_connect():
+    def handle_connect(auth=None):
         user = _session_user()
         if not user:
             return False
