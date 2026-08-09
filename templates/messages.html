@@ -40,7 +40,7 @@
 {% block scripts %}
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 <script>
-  const socket = io({ transports: ['websocket', 'polling'] });
+  const socket = io({ transports: ['websocket', 'polling'], reconnectionAttempts: 5, reconnectionDelay: 1000 });
   let reloadTimer = null;
   socket.on('inbox:bump', (data) => {
     Resonance.toast(`${data.sender_name} : ${data.body.slice(0, 60)}`, 'success');
