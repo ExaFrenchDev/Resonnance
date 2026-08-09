@@ -550,7 +550,7 @@ textarea.input { resize: vertical; min-height: 92px; }
 
 /* ---------- Bacs de genres ---------- */
 
-.genre-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.genre-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(min(150px, 100%), 1fr)); }
 
 .genre {
   position: relative;
@@ -701,6 +701,7 @@ textarea.input { resize: vertical; min-height: 92px; }
   font-size: 14.5px;
   align-self: flex-start;
   word-wrap: break-word;
+  overflow-wrap: anywhere;
 }
 
 .bubble--me { align-self: flex-end; background: var(--blue); color: #fff; border-color: var(--blue); }
@@ -837,7 +838,7 @@ textarea.input { resize: vertical; min-height: 92px; }
 /* ---------- Goûts ---------- */
 
 .taste { display: grid; grid-template-columns: 1fr 316px; gap: 26px; align-items: start; }
-.tile-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(154px, 1fr)); }
+.tile-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(min(154px, 100%), 1fr)); }
 
 .tile {
   background: var(--paper-2);
@@ -999,8 +1000,8 @@ textarea.input { resize: vertical; min-height: 92px; }
 }
 
 @media (max-width: 560px) {
-  .genre-grid { grid-template-columns: repeat(auto-fill, minmax(126px, 1fr)); }
-  .tile-grid { grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 8px; }
+  .genre-grid { grid-template-columns: repeat(auto-fill, minmax(min(126px, 100%), 1fr)); }
+  .tile-grid { grid-template-columns: repeat(auto-fill, minmax(min(128px, 100%), 1fr)); gap: 8px; }
 
   .actionbar {
     position: fixed;
@@ -1018,11 +1019,9 @@ textarea.input { resize: vertical; min-height: 92px; }
 }
 
 @media (max-width: 420px) {
-  .genre-grid { grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); }
-  .tile-grid { grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); }
+  .genre-grid { grid-template-columns: repeat(auto-fill, minmax(min(108px, 100%), 1fr)); }
+  .tile-grid { grid-template-columns: repeat(auto-fill, minmax(min(112px, 100%), 1fr)); }
 
-  /* Une seule colonne pour la barre d'action : le bouton principal
-     mérite toute la largeur sur les petits écrans. */
   .actionbar { flex-direction: column; align-items: stretch; }
   .actionbar > .btn { width: 100%; }
 
