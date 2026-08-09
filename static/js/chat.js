@@ -1,6 +1,6 @@
 (() => {
   const config = window.RESONANCE_CHAT;
-  const socket = io({ transports: ['websocket', 'polling'] });
+  const socket = io({ transports: ['websocket', 'polling'], reconnectionAttempts: 5, reconnectionDelay: 1000 });
 
   const log = document.getElementById('log');
   const composer = document.getElementById('composer');
